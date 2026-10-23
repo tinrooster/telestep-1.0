@@ -151,17 +151,23 @@ class ReviewWindow(tk.Toplevel):
         self.cmb_level.grid(row=1, column=2, sticky="e", pady=(4, 0))
         self.cmb_level.bind("<<ComboboxSelected>>", lambda e: self._level_changed())
 
-        mk = ttk.LabelFrame(right, text="Hide something in the screenshot (drag a rectangle on the picture)",
-                            padding=6)
+        mk = ttk.LabelFrame(right, text="Hide private information in the screenshot", padding=6)
         mk.grid(row=3, column=0, sticky="ew", pady=(6, 0))
-        mk.columnconfigure(0, weight=1)
+        self.btn_mask = tk.Button(mk, text="Hide this area", command=self.apply_mask, state="disabled", relief="flat",
+                                  font=("Segoe UI", 10, "bold"), padx=12, pady=3, cursor="hand2")
+        self.btn_mask.grid(row=0, column=0, sticky="w")
         ttk.Combobox(mk, textvariable=self.var_style, values=[core.MASK_STYLES[k] for k in core.HIDING_STYLES],
-                     state="readonly").grid(row=0, column=0, sticky="ew")
-        ttk.Checkbutton(mk, text="Same area on every screenshot", variable=self.var_all).grid(row=0, column=1, padx=8)
-        self.btn_mask = ttk.Button(mk, text="Apply to selection", command=self.apply_mask, state="disabled")
-        self.btn_mask.grid(row=0, column=2)
-        ttk.Label(mk, text="This permanently changes the saved screenshot(s).", foreground="gray").grid(
-            row=1, column=0, columnspan=3, sticky="w")
+                     state="readonly", width=22).grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        ttk.Checkbutton(mk, text="Same area on every screenshot", variable=self.var_all,
+                        command=self._update_hint).grid(row=0, column=2, padx=8)
+        self.btn_clear = ttk.Button(mk, text="Clear", width=6, command=self.clear_selection, state="disabled")
+        self.btn_clear.grid(row=0, column=3)
+        mk.columnconfigure(1, weight=1)
+        self.var_hint = tk.StringVar()
+        self.lbl_hint = ttk.Label(mk, textvariable=self.var_hint, foreground="gray", wraplength=620, justify="left")
+        self.lbl_hint.grid(row=1, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        self._selbar = None
+        self._paint_mask_button(False)
         pan.add(right, weight=3)
 
         # ---- bottom: report options ----
@@ -273,7 +279,9 @@ class ReviewWindow(tk.Toplevel):
     def show_preview(self):
         self.cv.delete("all")
         self._sel_rect = None
-        self.btn_mask.configure(state="disabled")
+        self._drop_selbar()
+        self._paint_mask_button(False)
+        self.btn_clear.configure(state="disabled")
         st = self._cur
         img = self._current_image() if st else None
         cw, ch = max(self.cv.winfo_width(), 100), max(self.cv.winfo_height(), 100)
@@ -283,6 +291,8 @@ class ReviewWindow(tk.Toplevel):
                 msg = "Text entry - edit the caption below"
             self.cv.create_text(cw // 2, ch // 2, text=msg, fill="#9aa0a6", font=("Segoe UI", 11))
             self.lbl_info.configure(text="" if not st else self._info(st))
+            self._photo = None
+            self._update_hint()
             return
         self._img_size = img.size
         self._scale = min(cw / img.width, ch / img.height, 1.0)
@@ -291,6 +301,14 @@ class ReviewWindow(tk.Toplevel):
         self._off = ((cw - size[0]) // 2, (ch - size[1]) // 2)
         self.cv.create_image(self._off[0], self._off[1], image=self._photo, anchor="nw")
         self.lbl_info.configure(text=self._info(st))
+        # hint banner (only on screen, never in the saved image)
+        bx, by = self._off[0] + 8, self._off[1] + size[1] - 30
+        t = self.cv.create_text(bx + 8, by + 11, anchor="w", fill="white", font=("Segoe UI", 9, "bold"), tags="hint",
+                                text="To hide something: click and drag a box on the picture")
+        x0, y0, x1, y1 = self.cv.bbox(t)
+        r = self.cv.create_rectangle(x0 - 8, y0 - 4, x1 + 8, y1 + 4, fill="#37474f", outline="", tags="hint")
+        self.cv.tag_lower(r, t)
+        self._update_hint()
 
     def _info(self, st):
         bits = [st.when, st.window, f"{st.app} {st.app_version}".strip()]
@@ -302,7 +320,10 @@ class ReviewWindow(tk.Toplevel):
         self._sel_start = (e.x, e.y)
         if self._sel_rect:
             self.cv.delete(self._sel_rect)
-        self._sel_rect = self.cv.create_rectangle(e.x, e.y, e.x, e.y, outline="#ff3d00", width=2, dash=(4, 3))
+        self.cv.delete("hint")
+        self._drop_selbar()
+        self._sel_rect = self.cv.create_rectangle(e.x, e.y, e.x, e.y, outline="#ff3d00", width=2, dash=(4, 3),
+                                                  fill="#ff3d00", stipple="gray25")
 
     def _sel_drag(self, e):
         if self._sel_rect and self._sel_start:
@@ -313,8 +334,78 @@ class ReviewWindow(tk.Toplevel):
             return
         x0, y0, x1, y1 = self.cv.coords(self._sel_rect)
         ok = abs(x1 - x0) >= 6 and abs(y1 - y0) >= 6
-        self.btn_mask.configure(state="normal" if ok else "disabled")
+        self._paint_mask_button(ok)
+        self.btn_clear.configure(state="normal")
         self._sel_start = None
+        if ok:
+            self._show_selbar()
+        else:
+            self._drop_selbar()
+        self._update_hint()
+
+    def _paint_mask_button(self, ready):
+        """Orange and obvious while an area is selected, flat grey otherwise."""
+        if ready:
+            self.btn_mask.configure(state="normal", bg="#e64a19", fg="white", activebackground="#bf360c",
+                                    activeforeground="white")
+        else:
+            self.btn_mask.configure(state="disabled", bg="#d9d9d9", fg="#8a8a8a", disabledforeground="#8a8a8a")
+
+    def _drop_selbar(self):
+        if self._selbar is not None:
+            try:
+                self._selbar.destroy()
+            except tk.TclError:
+                pass
+            self._selbar = None
+
+    def _show_selbar(self):
+        """Floating 'Hide this area / Cancel' buttons right beside the selection box."""
+        self._drop_selbar()
+        if not self._sel_rect:
+            return
+        x0, y0, x1, y1 = self.cv.coords(self._sel_rect)
+        bar = tk.Frame(self.cv, bg="#263238", padx=4, pady=4, highlightthickness=1, highlightbackground="#ff3d00")
+        tk.Button(bar, text="Hide this area", command=self.apply_mask, bg="#e64a19", fg="white", relief="flat",
+                  activebackground="#bf360c", activeforeground="white", font=("Segoe UI", 10, "bold"), padx=10,
+                  cursor="hand2").pack(side="left")
+        tk.Button(bar, text="Cancel", command=self.clear_selection, bg="#546e7a", fg="white", relief="flat",
+                  activebackground="#37474f", activeforeground="white", font=("Segoe UI", 10), padx=8,
+                  cursor="hand2").pack(side="left", padx=(4, 0))
+        self._selbar = bar
+        cw, ch = self.cv.winfo_width(), self.cv.winfo_height()
+        left, bottom, top = min(x0, x1), max(y0, y1), min(y0, y1)
+        bar.update_idletasks()
+        bw, bh = bar.winfo_reqwidth(), bar.winfo_reqheight()
+        y = bottom + 6 if bottom + 6 + bh <= ch else max(2, top - bh - 6)
+        x = min(max(2, left), max(2, cw - bw - 2))
+        self.cv.create_window(x, y, window=bar, anchor="nw", tags="selbar")
+
+    def clear_selection(self):
+        if self._sel_rect:
+            self.cv.delete(self._sel_rect)
+        self._sel_rect = None
+        self._sel_start = None
+        self._drop_selbar()
+        self._paint_mask_button(False)
+        self.btn_clear.configure(state="disabled")
+        self._update_hint()
+
+    def _update_hint(self):
+        """Tell the user what the hide tool will do, and to which screenshots."""
+        if not hasattr(self, "var_hint"):
+            return
+        n = sum(1 for s in self.s.steps if s.raw)
+        scope = f"ALL {n} screenshots" if self.var_all.get() else "this screenshot only"
+        if self._sel_rect and self.btn_mask.cget("state") == "normal":
+            msg = f'Area selected. Pick a style, then click "Hide this area" - it will be applied to {scope}.'
+        elif not self._cur or self._photo is None:
+            msg = "Select a step with a screenshot, then drag a box on the picture to choose what to hide."
+        else:
+            msg = f"Drag a box on the picture to choose the area. It will be hidden on {scope}."
+        ready = bool(self._sel_rect and self.btn_mask.cget("state") == "normal")
+        self.lbl_hint.configure(foreground="#d84315" if ready else "gray")
+        self.var_hint.set(msg + " Hiding permanently changes the saved screenshot(s).")
 
     def selection_in_image(self):
         """The dragged rectangle in image pixels (l, t, r, b), or None."""

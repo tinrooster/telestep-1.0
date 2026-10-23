@@ -173,5 +173,3 @@ Contact TE_dev: alan.c.hay@abc.com
 
 Telestep depends on third-party packages under their own licenses (including LGPLv3 for the optional `pynput` and
 `pystray`); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Repository: <https://gitlab.com/ac-pcr1/telestep>
-
-Developed with AI assistance (Claude, by Anthropic). Provided as is, without warranty.

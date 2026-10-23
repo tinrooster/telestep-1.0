@@ -69,10 +69,15 @@ python telestep_recorder.py --title "Fix Teams audio" --capture window --hide-wi
 ```
 `python telestep_recorder.py --help` lists everything.
 
+## Hiding private information in the review editor
+Select a step, then **click and drag a box on the picture** around what to hide (it turns orange). Pick a style, then click
+**Hide this area**. Tick *Same area on every screenshot* to apply it to all of them. **Clear** cancels the box. Hiding
+permanently changes the saved screenshot(s), so it is not undone by closing the editor.
+
 ## Support mode
 Started with `Telestep.exe --support` (or an exe named *Support*): type what is wrong, click **Record**, repeat the
 problem, click **Stop and package**. Telestep saves one ZIP on the Desktop to send to IT. Pause (F9) before showing
-passwords or private data. Use **Note** to point out where something goes wrong.
+passwords or private data. Enter your name and a phone number or email so IT can reach you. Use **Note** to point out where something goes wrong.
 
 ## Tray icon, .exe
 - Tray icon (Options): `pip install pystray`. With the tray icon on, the close button hides Telestep to the tray (untick "close button sends it to the tray" to make it quit instead). Double-click the icon or choose **Show toolbar** to bring it back; **Quit** in the tray menu exits.
