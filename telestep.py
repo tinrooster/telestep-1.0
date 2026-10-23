@@ -34,7 +34,7 @@ AFTER = {"Screenshot at the click only": "off", "Also capture the result after t
          "Capture only the result after the click": "replace"}
 KEYS = {"Mouse only - no keyboard hook at all": "none", "Count typed characters only": "count",
         "Record typed text (never passwords)": "text"}
-ICON_COLORS = {"record": "#e53935", "pause": "#f59e0b", "resume": "#2e9e4f", "stop": "#455a64", "note": "#1e88e5",
+ICON_COLORS = {"record": "#e53935", "pause": "#f59e0b", "resume": "#2e9e4f", "stop": "#b71c1c", "note": "#1e88e5",
                "camera": "#00897b", "review": "#5e35b1", "folder": "#8d6e63", "gear": "#546e7a",
                "help": "#0277bd"}
 
@@ -148,6 +148,7 @@ class App:
         root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.bind("<F1>", lambda e: self.open_help())
+        root.bind("<Button-3>", self._bar_menu)
         self.scale = max(1.0, root.winfo_fpixels("1i") / 96)
         self.bar_px = max(3, round(4 * self.scale))
 
@@ -857,6 +858,38 @@ class App:
         self.review = telestep_review.ReviewWindow(self.root, session, formats={k: v.get() for k, v in self.var_fmt.items()})
         self.out_dir = session.dir
         return self.review
+
+    def _bar_menu(self, e):
+        """Right-click anywhere on the toolbar: the common actions."""
+        m = tk.Menu(self.root, tearoff=0)
+        rec = self.rec
+        if rec:
+            m.add_command(label="Resume" if rec.paused else "Pause", accelerator=self.var_hk["pause"].get(),
+                          command=self.toggle_pause)
+            m.add_command(label="Stop and save", accelerator=self.var_hk["stop"].get(), command=self.stop)
+            m.add_separator()
+            m.add_command(label="Add note...", accelerator=self.var_hk["note"].get(), command=self.add_note)
+            m.add_command(label="Take screenshot now", accelerator=self.var_hk["shot"].get(), command=self.shot)
+        else:
+            m.add_command(label="Start recording", command=self.start)
+            m.add_separator()
+            m.add_command(label="Review a saved session...", command=self.open_review)
+            if self.last_session:
+                m.add_command(label="Review the last recording", command=lambda: self.open_review(self.last_session))
+        m.add_command(label="Open the output folder", command=self.open_folder)
+        m.add_separator()
+        m.add_command(label="Hide settings" if self.var_cfg.get() else "Show settings",
+                      command=lambda: (self.var_cfg.set(not self.var_cfg.get()), self.toggle_config()))
+        m.add_command(label="Help", accelerator="F1", command=self.open_help)
+        m.add_command(label="About", command=lambda: self.open_help("about"))
+        m.add_separator()
+        if self.tray.icon:
+            m.add_command(label="Hide to tray", command=self.root.withdraw)
+        m.add_command(label="Quit", command=lambda: self.on_close(force=True))
+        try:
+            m.tk_popup(e.x_root, e.y_root)
+        finally:
+            m.grab_release()
 
     def open_help(self, start="help"):
         import telestep_help

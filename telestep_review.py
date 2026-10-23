@@ -112,6 +112,8 @@ class ReviewWindow(tk.Toplevel):
         self.tree.tag_configure("warning", background="#fff4e0")
         self.tree.tag_configure("tip", background="#eaf7ee")
         self.tree.bind("<<TreeviewSelect>>", lambda e: self.on_select())
+        self.tree.bind("<Button-3>", self._tree_menu)
+        self.tree.bind("<Control-a>", lambda e: (self.tree.selection_set(self.tree.get_children()), "break")[1])
         bar = ttk.Frame(left)
         bar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         for text, cmd in (("Up", lambda: self.move(-1)), ("Down", lambda: self.move(1)),
@@ -131,6 +133,7 @@ class ReviewWindow(tk.Toplevel):
         self.cv.bind("<ButtonPress-1>", self._sel_press)
         self.cv.bind("<B1-Motion>", self._sel_drag)
         self.cv.bind("<ButtonRelease-1>", self._sel_release)
+        self.cv.bind("<Button-3>", self._cv_menu)
         self.cv.bind("<Configure>", lambda e: self.show_preview())
 
         info = ttk.Frame(right)
@@ -374,6 +377,127 @@ class ReviewWindow(tk.Toplevel):
             self._drop_selbar()
         self._update_hint()
 
+    # ------------------------------------------------------------------ right-click menus
+    @staticmethod
+    def _popup(menu, e):
+        try:
+            menu.tk_popup(e.x_root, e.y_root)
+        finally:
+            menu.grab_release()
+
+    def _focus_caption(self):
+        self.txt.focus_set()
+        self.txt.mark_set("insert", "end-1c")
+
+    def _copy_caption(self):
+        st = self._cur
+        if st:
+            self.clipboard_clear()
+            self.clipboard_append(st.caption(self.wording))
+
+    def _tree_menu(self, e):
+        """Right-click on the step list: act on the step under the pointer (or on the current selection)."""
+        row = self.tree.identify_row(e.y)
+        if row and row not in self.tree.selection():
+            self.tree.selection_set(row)
+            self.tree.focus(row)
+            self.update_idletasks()
+        sel = self.selected_steps()
+        one = len(sel) == 1
+        st = sel[0] if one else None
+        on = lambda c: "normal" if c else "disabled"
+        m = tk.Menu(self, tearoff=0)
+        m.add_command(label="Edit caption", command=self._focus_caption, state=on(one))
+        m.add_command(label="Copy caption", command=self._copy_caption, state=on(one))
+        m.add_command(label="Reset caption to automatic wording", command=self.reset_caption,
+                      state=on(one and st.kind not in ("note", "section") and bool(st.custom)))
+        m.add_separator()
+        m.add_command(label="Move up", accelerator="Alt+Up", command=lambda: self.move(-1), state=on(one))
+        m.add_command(label="Move down", accelerator="Alt+Down", command=lambda: self.move(1), state=on(one))
+        m.add_separator()
+        all_skipped = bool(sel) and all(s.skip for s in sel)
+        m.add_command(label="Include in report" if all_skipped else "Exclude from report", command=self.toggle_skip,
+                      state=on(sel))
+        m.add_command(label="Delete" + (f" {len(sel)} steps" if len(sel) > 1 else ""), accelerator="Del",
+                      command=self.delete_selected, state=on(sel))
+        m.add_separator()
+        ins = tk.Menu(m, tearoff=0)
+        for label, fn in (("Section heading above", lambda: self.add_section()),
+                          ("Section heading below", lambda: self.add_section(below=True)),
+                          ("Note / warning / tip above", lambda: self.add_note()),
+                          ("Note / warning / tip below", lambda: self.add_note(below=True))):
+            ins.add_command(label=label, command=fn)
+        m.add_cascade(label="Insert", menu=ins)
+        m.add_separator()
+        m.add_command(label="Select all", accelerator="Ctrl+A",
+                      command=lambda: self.tree.selection_set(self.tree.get_children()))
+        self._popup(m, e)
+
+    def _marker_rect(self, st):
+        """The clicked control's outline in screenshot pixels (l, t, r, b), or None."""
+        r = (st.marker or {}).get("rect") if st else None
+        if not r or len(r) != 4 or self._photo is None:
+            return None
+        w, h = self._img_size
+        l, t, rr, b = max(0, r[0]), max(0, r[1]), min(w, r[2]), min(h, r[3])
+        return (l, t, rr, b) if rr - l >= 4 and b - t >= 4 else None
+
+    def _select_image_rect(self, l, t, r, b):
+        """Select an area given in screenshot pixels, exactly as if it had been dragged on the picture."""
+        k, (ox, oy) = self._scale, self._off
+        self.cv.delete("hint")
+        self._drop_selbar()
+        if self._sel_rect:
+            self.cv.delete(self._sel_rect)
+        self._sel_rect = self.cv.create_rectangle(ox + l * k, oy + t * k, ox + r * k, oy + b * k, outline="#ff3d00",
+                                                  width=2, dash=(4, 3), fill="#ff3d00", stipple="gray25")
+        self._paint_mask_button(True)
+        self.btn_clear.configure(state="normal")
+        self._show_selbar()
+        self._update_hint()
+
+    def _hide_with(self, key):
+        self.var_style.set(core.MASK_STYLES[key])
+        self.apply_mask()
+
+    def _hide_everywhere(self):
+        self.var_all.set(True)
+        try:
+            self.apply_mask()
+        finally:
+            self.var_all.set(False)
+            self._update_hint()
+
+    def _cv_menu(self, e):
+        """Right-click on the picture: hide things, switch Before/After, exclude or delete the step."""
+        st = self._cur
+        has_img = bool(st) and self._photo is not None
+        sel_ok = bool(self._sel_rect) and self.btn_mask.cget("state") == "normal"
+        rect = self._marker_rect(st) if has_img else None
+        on = lambda c: "normal" if c else "disabled"
+        m = tk.Menu(self, tearoff=0)
+        if has_img and not sel_ok and not rect:
+            m.add_command(label="Drag a box on the picture to select an area to hide", state="disabled")
+        m.add_command(label="Select the clicked control (to hide it)",
+                      command=lambda: self._select_image_rect(*rect), state=on(rect))
+        sub = tk.Menu(m, tearoff=0)
+        for k in core.HIDING_STYLES:
+            sub.add_command(label=core.MASK_STYLES[k], command=lambda k=k: self._hide_with(k))
+        m.add_cascade(label="Hide selected area as", menu=sub, state=on(sel_ok))
+        m.add_command(label="Hide selected area on every screenshot...", command=self._hide_everywhere, state=on(sel_ok))
+        m.add_command(label="Clear selection", command=self.clear_selection, state=on(self._sel_rect))
+        m.add_separator()
+        has_after = bool(st and st.raw_after and (self.s.dir / st.raw_after).exists())
+        m.add_radiobutton(label="Show the 'before' screenshot", variable=self.var_which, value="before",
+                          command=self.show_preview, state=on(has_after))
+        m.add_radiobutton(label="Show the 'after' screenshot", variable=self.var_which, value="after",
+                          command=self.show_preview, state=on(has_after))
+        m.add_separator()
+        m.add_command(label="Include in report" if st and st.skip else "Exclude from report", command=self.toggle_skip,
+                      state=on(st))
+        m.add_command(label="Delete this step", command=self.delete_selected, state=on(st))
+        self._popup(m, e)
+
     def _paint_mask_button(self, ready):
         """Orange and obvious while an area is selected, flat grey otherwise."""
         if ready:
@@ -559,29 +683,31 @@ class ReviewWindow(tk.Toplevel):
             self.s.save()
             self.refresh([st.id for st in sel])
 
-    def _insert_index(self):
+    def _insert_index(self, below=False):
         sel = self.selected_steps()
-        return self.s.steps.index(sel[0]) if sel else len(self.s.steps)
+        if not sel:
+            return len(self.s.steps)
+        return self.s.steps.index(sel[-1] if below else sel[0]) + (1 if below else 0)
 
-    def add_section(self, text=None):
+    def add_section(self, text=None, below=False):
         if text is None:
             text = self._ask_text("Section heading", "Heading for the steps that follow:")
         if not text:
             return None
         st = Step(new_id(), "section", friendly=text, tech=text)
-        self.s.steps.insert(self._insert_index(), st)
+        self.s.steps.insert(self._insert_index(below), st)
         self.s.save()
         self.refresh([st.id])
         return st
 
-    def add_note(self, text=None, level="note"):
+    def add_note(self, text=None, level="note", below=False):
         if text is None:
             dlg = w.NoteDialog(self)
             text, level = dlg.result, dlg.level
         if not text:
             return None
         st = Step(new_id(), "note", friendly=text, tech=text, level=level)
-        self.s.steps.insert(self._insert_index(), st)
+        self.s.steps.insert(self._insert_index(below), st)
         self.s.save()
         self.refresh([st.id])
         return st

@@ -74,6 +74,15 @@ Select a step, then **click and drag a box on the picture** around what to hide 
 **Hide this area**. Tick *Same area on every screenshot* to apply it to all of them. **Clear** cancels the box. Hiding
 permanently changes the saved screenshot(s), so it is not undone by closing the editor.
 
+## Right-click menus
+- **Step list (review editor):** edit or copy the caption, reset it to automatic wording, move up/down, exclude or include,
+  delete, insert a section heading or note above/below, select all.
+- **Picture (review editor):** *Select the clicked control* outlines the control you clicked (then choose a style or press
+  **Hide this area**); *Hide selected area as...* hides it straight away in the style you pick; *...on every screenshot*;
+  switch Before/After; exclude or delete the step.
+- **Toolbar:** record/pause/stop, add a note, take a screenshot, review a saved session, open the output folder, settings,
+  Help, About, hide to tray, Quit.
+
 ## Support mode
 Started with `Telestep.exe --support` (or an exe named *Support*): type what is wrong, click **Record**, repeat the
 problem, click **Stop and package**. Telestep saves one ZIP on the Desktop to send to IT. Pause (F9) before showing
