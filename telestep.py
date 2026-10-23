@@ -82,10 +82,20 @@ class Tray:
         import pystray
         put = self.app.requests.put
         item = pystray.MenuItem
-        menu = pystray.Menu(
-            item("Show toolbar", lambda: put("show"), default=True), item("Start recording", lambda: put("start")),
-            item("Pause / resume", lambda: put("pause")), item("Stop and save", lambda: put("stop")),
-            item("Add note", lambda: put("note")), item("Screenshot", lambda: put("shot")),
+        app = self.app
+        idle = lambda _i=None: app.state == "idle"
+        busy = lambda _i=None: app.state != "idle"
+        status = {"idle": "Telestep - not recording", "rec": "\u25cf RECORDING", "paused": "\u275a\u275a PAUSED"}
+        menu = pystray.Menu(  # rebuilt from app.state each time the menu opens
+            item(lambda _i: status.get(app.state, "Telestep"), None, enabled=False),
+            item("Show toolbar", lambda: put("show"), default=True),
+            pystray.Menu.SEPARATOR,
+            item("Start recording", lambda: put("start"), visible=idle),
+            item(lambda _i: "Resume" if app.state == "paused" else "Pause", lambda: put("pause"), visible=busy),
+            item("Stop and save", lambda: put("stop"), visible=busy),
+            item("Add note...", lambda: put("note"), visible=busy),
+            item("Take screenshot now", lambda: put("shot"), visible=busy),
+            pystray.Menu.SEPARATOR,
             item("Quit", lambda: put("quit")))
         self.icon = pystray.Icon("Telestep", self._image(), "Telestep", menu)
         try:
@@ -609,7 +619,12 @@ class App:
         self._set_icon(self.btn_pause, "resume" if state == "paused" else "pause")
         self.ent_title.config(state="normal" if idle else "disabled")
         for wd in (self.btn_browse, self.cmb_preset, self.btn_psave, self.btn_pdel) + tuple(self.hk_entries):
-            self._enable(wd, idle) if not isinstance(wd, ttk.Entry) else wd.config(state="normal" if idle else "disabled")
+            if isinstance(wd, w.HotkeyEntry):
+                wd.config(state="readonly" if idle else "disabled")
+            elif isinstance(wd, ttk.Entry):
+                wd.config(state="normal" if idle else "disabled")
+            else:
+                self._enable(wd, idle)
         for wd in self.lock_capture + self.lock_privacy:
             if isinstance(wd, ttk.Combobox):
                 wd.config(state="readonly" if idle else "disabled")
@@ -793,9 +808,9 @@ class App:
         if self.rec:
             self.rec.toggle_pause()
 
-    def shot(self):
+    def shot(self, from_menu=False):
         if self.rec:
-            self.rec.manual_shot()
+            self.rec.manual_shot(from_menu=from_menu)
 
     def add_note(self):
         if not self.rec:
@@ -877,7 +892,8 @@ class App:
             m.add_command(label="Stop and save", accelerator=self.var_hk["stop"].get(), command=self.stop)
             m.add_separator()
             m.add_command(label="Add note...", accelerator=self.var_hk["note"].get(), command=self.add_note)
-            m.add_command(label="Take screenshot now", accelerator=self.var_hk["shot"].get(), command=self.shot)
+            m.add_command(label="Take screenshot now", accelerator=self.var_hk["shot"].get(),
+                          command=lambda: self.shot(from_menu=True))
         else:
             m.add_command(label="Start recording", command=self.start)
             m.add_separator()
@@ -979,7 +995,7 @@ class App:
             elif req == "note":
                 self.add_note()
             elif req == "shot":
-                self.shot()
+                self.shot(from_menu=True)
 
     def poll(self):
         """Keep the UI in sync with the recorder (hotkeys included) and refresh overlays."""

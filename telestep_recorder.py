@@ -265,11 +265,12 @@ class Recorder:
         self._flush_typing()
         self.q.put(("note", dt.datetime.now(), text, level))
 
-    def manual_shot(self, pos=None):
-        """Screenshot without a click (hotkey / toolbar button).  Uses the cursor position to pick the area."""
+    def manual_shot(self, pos=None, from_menu=False):
+        """Screenshot without a click (hotkey / toolbar button).  Uses the cursor position to pick the area.
+        from_menu=True (tray or right-click menu): the cursor is over the menu, so use the last click instead."""
         if self.paused or self.stop_evt.is_set():
             return
-        pos = pos or cursor_pos() or self._last_pos
+        pos = pos or (self._last_pos if from_menu else None) or cursor_pos() or self._last_pos
         cap = self.cap
         if pos is None or in_rects(pos[0], pos[1], self.ignore_rects):  # cursor is on the toolbar
             pos = self._last_pos or pos
