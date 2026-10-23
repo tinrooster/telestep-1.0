@@ -14,7 +14,7 @@ DEFAULTS = {
     "dbl": True, "drag": True, "scroll": False, "shortcuts": True, "watch_dialogs": True,
     # privacy
     "masks": [], "mask_style": "solid", "key_mode": "count",
-    "ocr": {"ip": False, "mac": False, "key": False, "email": False}, "ocr_style": "solid",
+    "ocr": {"ip": False, "mac": False, "key": False, "email": False}, "ocr_style": "solid", "ocr_labels": True,
     # report
     "formats": {"md": True, "docx": True, "html": False, "pdf": False, "txt": False},
     "review_after_stop": True, "wording": "friendly",

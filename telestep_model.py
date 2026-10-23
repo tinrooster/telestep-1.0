@@ -217,8 +217,26 @@ def _q(name):
     return f'"{name}"'
 
 
+# control types that are just containers: a name like "Message 73 of 74" says little, so OCR text helps
+CONTAINER_KINDS = ("Group", "Pane", "Custom", "Document", "Window", "List", "Table")
+
+
 def click_texts(kind, el):
-    """(friendly, technical) captions for a click/dblclick/drag, from the stored element info."""
+    """(friendly, technical) captions for a click/dblclick/drag, from the stored element info.
+    `el["near"]` (optional) is OCR text found next to the click; it is added when the control itself has no useful name."""
+    friendly, tech = _click_texts(kind, el)
+    near = (el or {}).get("near", "")
+    if near:
+        q = _q(near)
+        tech += f" near text {q}"
+        if (el or {}).get("name"):
+            friendly += f" near {q}"
+        else:
+            friendly = friendly.rsplit(" on ", 1)[0] + f" near {q}"
+    return friendly, tech
+
+
+def _click_texts(kind, el):
     el = el or {}
     btn = el.get("button", "left")
     name, ck, inh = el.get("name", ""), el.get("kind", ""), el.get("inherited", False)

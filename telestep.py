@@ -169,6 +169,7 @@ class App:
         self.var_keys = tk.StringVar(value=_inv(KEYS, d["key_mode"]))
         self.var_mstyle = tk.StringVar(value=core.MASK_STYLES.get(d["mask_style"], core.MASK_STYLES["solid"]))
         self.var_ocr = {k: tk.BooleanVar(value=d["ocr"].get(k, False)) for k in core.OCR_PATTERNS}
+        self.var_ocr_labels = tk.BooleanVar(value=d["ocr_labels"])
         self.var_fmt = {k: tk.BooleanVar(value=d["formats"].get(k, False)) for k in rep.FORMATS}
         self.var_wording = tk.StringVar(value="Friendly" if d["wording"] == "friendly" else "Technical")
         t = d["template"]
@@ -341,9 +342,11 @@ class App:
                                            command=self.update_scope_label) for k in core.OCR_PATTERNS]
         for i, c in enumerate(self.ocr_checks):
             c.grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 12))
+        ttk.Checkbutton(ocr, text="Label clicks on unnamed controls with nearby text (OCR)",
+                        variable=self.var_ocr_labels).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.var_ocr_note = tk.StringVar(value="")
         ttk.Label(ocr, textvariable=self.var_ocr_note, foreground="gray", wraplength=int(330 * self.scale),
-                  justify="left").grid(row=2, column=0, columnspan=2, sticky="w")
+                  justify="left").grid(row=3, column=0, columnspan=2, sticky="w")
         self.lock_privacy = [self.cmb_keys, self.lst_masks, self.btn_madd, self.btn_mwin, self.btn_mdel, self.btn_mclr,
                              self.cmb_mstyle] + self.ocr_checks
 
@@ -411,8 +414,8 @@ class App:
     def _tab_changed(self):
         if not self._ocr_checked and self.nb.select() == str(self.tab_privacy):
             self._ocr_checked = True
-            self.var_ocr_note.set("Tesseract found - words that look like IPs/MACs/keys are masked." if core.ocr_available()
-                                  else "Tesseract is not installed, so this does nothing yet (see README).")
+            self.var_ocr_note.set("Tesseract found - OCR features are active." if core.ocr_available()
+                                  else "Tesseract is not installed, so the OCR options do nothing yet (see README).")
 
     # ------------------------------------------------------------------ widget helpers
     def _set_icon(self, widget, kind):
@@ -465,7 +468,7 @@ class App:
             "scroll": self.var_scroll.get(), "shortcuts": self.var_shortcuts.get(),
             "watch_dialogs": self.var_dialogs.get(), "masks": [m.to_dict() for m in self.masks],
             "mask_style": self.style_key(), "key_mode": KEYS[self.var_keys.get()],
-            "ocr": {k: v.get() for k, v in self.var_ocr.items()}, "formats": {k: v.get() for k, v in self.var_fmt.items()},
+            "ocr": {k: v.get() for k, v in self.var_ocr.items()}, "ocr_labels": self.var_ocr_labels.get(), "formats": {k: v.get() for k, v in self.var_fmt.items()},
             "review_after_stop": self.var_review.get(), "wording": self.wording(),
             "template": {"header": self.var_header.get().strip(), "footer": self.var_footer.get().strip(),
                          "logo": self.var_logo.get().strip(), "author": self.var_author.get().strip(),
@@ -512,6 +515,7 @@ class App:
         self.var_mstyle.set(core.MASK_STYLES.get(d["mask_style"], core.MASK_STYLES["solid"]))
         for k, v in self.var_ocr.items():
             v.set(d["ocr"].get(k, False))
+        self.var_ocr_labels.set(d.get("ocr_labels", True))
         for k, v in self.var_fmt.items():
             v.set(d["formats"].get(k, False))
         self.var_wording.set("Friendly" if d["wording"] == "friendly" else "Technical")
@@ -747,7 +751,7 @@ class App:
             dbl=self.var_dbl.get(), drag=self.var_drag.get(), scroll=self.var_scroll.get(),
             shortcuts=self.var_shortcuts.get(), watch_dialogs=self.var_dialogs.get(),
             ocr_kinds=[k for k, v in self.var_ocr.items() if v.get()], ocr_style=self.style_key(),
-            wording=self.wording(), hotkeys=hk)
+            wording=self.wording(), ocr_labels=self.var_ocr_labels.get(), hotkeys=hk)
 
     def start(self):
         mode, _ = self.current_mode()

@@ -77,7 +77,7 @@ permanently changes the saved screenshot(s), so it is not undone by closing the 
 ## Support mode
 Started with `Telestep.exe --support` (or an exe named *Support*): type what is wrong, click **Record**, repeat the
 problem, click **Stop and package**. Telestep saves one ZIP on the Desktop to send to IT. Pause (F9) before showing
-passwords or private data. Enter your name and a phone number or email so IT can reach you. Use **Note** to point out where something goes wrong.
+passwords or private data. After you stop, you can look through the screenshots and hide anything private before the ZIP is made. Enter your name and a phone number or email so IT can reach you. Use **Note** to point out where something goes wrong.
 
 ## Tray icon, .exe
 - Tray icon (Options): `pip install pystray`. With the tray icon on, the close button hides Telestep to the tray (untick "close button sends it to the tray" to make it quit instead). Double-click the icon or choose **Show toolbar** to bring it back; **Quit** in the tray menu exits.

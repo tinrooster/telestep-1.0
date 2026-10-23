@@ -1,14 +1,16 @@
 {
   "ask_contact": true,
   "require_contact": false,
-  "contact": "TVEngineering@Disney.com or ext. 7444",
+  "contact": "helpdesk@example.com or ext. 1234",
   "title": "Support recording",
   "output": "desktop",
   "max_mb": 10,
   "capture": "screen",
   "key_mode": "count",
-  "after_mode": "on",
+  "after_mode": "off",
   "exclude_taskbar": false,
   "collect_network": true,
-  "include_session": false
+  "include_session": false,
+  "review": "ask",
+  "ocr_labels": true
 }

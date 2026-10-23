@@ -37,7 +37,7 @@ import telestep_core as core  # sets DPI awareness on import
 from telestep_core import (Mask, OcrUnavailable, apply_masks, capture_box, clean_text, cursor_pos, foreground_info,
                       in_rects, norm_masks, ocr_redact, session_dir_name, taskbar_strips, window_info)
 from PIL import Image
-from telestep_model import (Session, Step, click_texts, collect_environment, drag_texts, new_id, scroll_texts,
+from telestep_model import (CONTAINER_KINDS, Session, Step, click_texts, collect_environment, drag_texts, new_id, scroll_texts,
                        shortcut_texts, type_texts)
 from telestep_settings import DEFAULT_HOTKEYS
 
@@ -79,6 +79,7 @@ class RecordOpts:
     ocr_kinds: list = field(default_factory=list)  # subset of ip, mac, key, email
     ocr_style: str = "solid"
     wording: str = "friendly"
+    ocr_labels: bool = True  # label clicks on unnamed controls with nearby text (needs Tesseract; silently skipped if absent)
     hotkeys: dict = field(default_factory=lambda: dict(DEFAULT_HOTKEYS))
 
 
@@ -137,6 +138,7 @@ class Recorder:
         self._ml = self._kl = self._hk = None
         self._hk_fallback = []
         self._warned_ocr = False
+        self._ocr_ok = None  # None = not tried yet, False = Tesseract missing
         self._worker = threading.Thread(target=self._work, daemon=True)
         self._watcher = threading.Thread(target=self._watch, daemon=True)
         self._hk_specs = []  # (modifier set, key name) of every configured hotkey
@@ -555,10 +557,14 @@ class Recorder:
         name, ckind, rect, pw, inherited = self._describe(auto, x, y)
         self._last_pw = pw
         el = {"name": name, "kind": ckind, "inherited": inherited, "button": btn, "x": x, "y": y}
-        friendly, tech = click_texts("click", el)
-        img, scale = self._prepare(img)
+        img, scale = self._prepare(img)  # redaction and masks happen first, so OCR below can't read hidden text
         geom = {"left": box["left"], "top": box["top"], "scale": scale}
         marker = {"shape": "click", "pt": self._map(geom, x, y), "rect": None}
+        if self.o.ocr_labels and not pw and (not name or ckind in CONTAINER_KINDS):
+            near = self._label_near(img, marker["pt"])
+            if near:
+                el["near"] = near
+        friendly, tech = click_texts("click", el)
         if rect and rect[2] > rect[0] and rect[3] > rect[1]:
             marker["rect"] = self._map(geom, rect[0], rect[1]) + self._map(geom, rect[2], rect[3])
         st = self._new("click", when, friendly, tech, info, marker=marker, geom=geom, el=el)
@@ -574,6 +580,19 @@ class Recorder:
                 else:
                     st.raw_after = self._save_raw(st.id, after, "_after")
         self.session.add(st)
+
+    def _label_near(self, img, pt):
+        if self._ocr_ok is False:
+            return ""
+        try:
+            text = core.ocr_label_near(img, pt[0], pt[1])
+            self._ocr_ok = True
+            return text
+        except core.OcrUnavailable:
+            self._ocr_ok = False
+        except Exception:
+            pass
+        return ""
 
     def _last_click_step(self, x, y, tol):
         st = self.session.steps[-1] if self.session.steps else None

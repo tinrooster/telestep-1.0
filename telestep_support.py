@@ -52,6 +52,8 @@ DEFAULTS = {
     "exclude_taskbar": False,
     "collect_network": True,
     "include_session": False,
+    "review": "ask",  # ask | always | never - let the user check the recording for private information before the ZIP
+    "ocr_labels": True,  # label clicks on unnamed controls with nearby text (needs Tesseract on the PC; skipped if absent)
 }
 # (max image width, JPEG quality), tried in order until the zip fits max_mb
 QUALITY_LEVELS = [(1100, 68), (900, 58), (720, 50), (560, 42)]
@@ -77,6 +79,8 @@ def load_config(path=None):
         cfg["key_mode"] = "count"
     if cfg["after_mode"] not in ("off", "replace", "pair"):
         cfg["after_mode"] = "off"
+    if cfg["review"] not in ("ask", "always", "never"):
+        cfg["review"] = "ask"
     try:
         cfg["max_mb"] = max(1.0, float(cfg["max_mb"]))
     except (TypeError, ValueError):
@@ -335,8 +339,16 @@ def fmt_size(n):
 class SupportApp:
     INTRO = ("Having a problem? Click Record, repeat what goes wrong, then click Stop. "
              "You will get one ZIP file to send to IT.")
-    PRIVACY = ("Telestep takes a screenshot at each click. Nothing is sent anywhere. Click Pause (or press F9) "
-               "before showing passwords or private information.")
+    def privacy_text(self):
+        """What the user is agreeing to - kept in step with what is actually collected."""
+        what = "a screenshot at each click, plus the computer name, your user name and basic system details"
+        if self.cfg.get("collect_network"):
+            what += " and network settings (including IP and MAC addresses)"
+        txt = (f"Telestep records {what}. Nothing is sent anywhere - you get a ZIP file and send it to IT yourself. "
+               "Click Pause (or press F9) before showing passwords or private information.")
+        if self.cfg.get("review") != "never":
+            txt += " You can look through the screenshots and hide anything private before the ZIP is made."
+        return txt
 
     def __init__(self, root, config=None, recorder_factory=None):
         self.root = root
@@ -350,6 +362,8 @@ class SupportApp:
         self.work = None
         self.description = ""
         self.reporter = ("", "")
+        self.duration = ""
+        self.review = None
         self.results_q = queue.Queue()
         self._job = None
 
@@ -381,7 +395,7 @@ class SupportApp:
         self.ent_contact = ttk.Entry(self.f, textvariable=self.var_contact)
         self.txt = tk.Text(self.f, width=44, height=4, wrap="word", relief="solid", borderwidth=1, font=("Segoe UI", 10))
         self.btn_start = ttk.Button(self.f, text="●  Record", style="Big.TButton", command=self.start)
-        self.lbl_priv = ttk.Label(self.f, text=self.PRIVACY, wraplength=360, justify="left", foreground="#666")
+        self.lbl_priv = ttk.Label(self.f, text=self.privacy_text(), wraplength=360, justify="left", foreground="#666")
         self.lbl_status = ttk.Label(self.f, textvariable=self.var_status, font=("Segoe UI", 11, "bold"))
         self.lbl_warn = ttk.Label(self.f, textvariable=self.var_warn, wraplength=360, justify="left", foreground="#b26a00")
         self.row = ttk.Frame(self.f)
@@ -391,6 +405,12 @@ class SupportApp:
         self.btn_pause.pack(side="left")
         self.btn_note.pack(side="left", padx=6)
         self.btn_stop.pack(side="left", padx=(6, 0))
+        self.lbl_check = ttk.Label(self.f, text="", wraplength=380, justify="left")
+        self.row3 = ttk.Frame(self.f)
+        self.btn_review = ttk.Button(self.row3, text="Review screenshots", style="Big.TButton", command=self.open_review)
+        self.btn_send = ttk.Button(self.row3, text="Create ZIP now", command=self.begin_package)
+        self.btn_review.pack(side="left")
+        self.btn_send.pack(side="left", padx=(8, 0))
         self.lbl_done = ttk.Label(self.f, text="", wraplength=380, justify="left")
         self.row2 = ttk.Frame(self.f)
         self.btn_show = ttk.Button(self.row2, text="Show the file", command=self.show_file)
@@ -429,6 +449,10 @@ class SupportApp:
             g(self.lbl_warn, row=2, pady=(6, 0))
             for b in (self.btn_pause, self.btn_note, self.btn_stop):
                 b.state(["!disabled" if state != "packaging" else "disabled"])
+        elif state == "check":
+            g(self.lbl_title, row=0, pady=(0, 6))
+            g(self.lbl_check, row=1, pady=(0, 10))
+            self.row3.grid(row=2, sticky="w")
         elif state == "done":
             g(self.lbl_title, row=0, pady=(0, 6))
             g(self.lbl_done, row=1, pady=(0, 10))
@@ -450,7 +474,7 @@ class SupportApp:
     def _default_recorder(self, outdir, title):
         cap = sr.CaptureOpts(mode=self.cfg["capture"], exclude_taskbar=bool(self.cfg["exclude_taskbar"]))
         opts = sr.RecordOpts(key_mode=self.cfg["key_mode"], max_width=1280, after_mode=self.cfg["after_mode"],
-                             scroll=False, wording="technical")
+                             scroll=False, wording="technical", ocr_labels=bool(self.cfg["ocr_labels"]))
         return sr.Recorder(outdir, cap, opts, title)
 
     def start(self):
@@ -520,11 +544,48 @@ class SupportApp:
             self.reset()
             return
         sess.title = self.cfg["title"] if not self.description else f"{self.cfg['title']}: {self.description.splitlines()[0][:80]}"
+        self.duration = duration
+        mode = self.cfg["review"]
+        if mode == "never":
+            self.begin_package()
+        elif mode == "always":
+            self.set_state("check")
+            self.open_review()
+        else:
+            self.lbl_check.configure(
+                text=f"Recorded {sess.count()} steps.\n\nWould you like to look through the screenshots and hide "
+                     "anything private before the ZIP file is made?")
+            self.set_state("check")
+
+    def open_review(self):
+        """Support-mode editor: hide private areas / delete steps, then continue to the ZIP."""
+        if not self.session:
+            return
+        import telestep_review
+        try:
+            self.review = telestep_review.ReviewWindow(self.root, self.session, support=True,
+                                                       on_done=self.begin_package, on_cancel=self._review_back)
+            self.review.attributes("-topmost", True)  # the small Support window is topmost, so this must be too
+            self.review.lift()
+            self.review.focus_force()
+        except Exception as e:
+            messagebox.showerror(TITLE, f"Could not open the review window:\n{e}", parent=self.root)
+
+    def _review_back(self):
+        """User left the review window without sending: back to the choice screen."""
+        self.lbl_check.configure(text=f"Recorded {self.session.count()} steps.\n\nCreate the ZIP file now, or review "
+                                      "the screenshots again?")
+        self.set_state("check")
+
+    def begin_package(self):
+        sess, description, duration = self.session, self.description, self.duration
+        self.set_state("packaging")
         self.var_status.set("Creating your ZIP file...")
+        self.root.update_idletasks()
 
         def job():
             try:
-                self.results_q.put(("ok", package(sess, self.cfg, self.description, duration,
+                self.results_q.put(("ok", package(sess, self.cfg, description, duration,
                                                   progress=lambda t: self.results_q.put(("progress", t)),
                                                   reporter=self.reporter)))
             except Exception as e:
@@ -622,6 +683,9 @@ class SupportApp:
             self.stop()
             return
         if self.state == "packaging":
+            return
+        if self.state == "check" and not messagebox.askyesno(
+                TITLE, "Close without creating the ZIP? Your recording will be discarded.", parent=self.root):
             return
         try:
             self.root.after_cancel(self._job)

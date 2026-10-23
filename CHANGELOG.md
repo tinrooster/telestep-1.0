@@ -2,6 +2,9 @@
 
 ## Unreleased
 - Support mode (`--support`, `build_support_exe.bat`): one-button recorder that writes a single ZIP with a one-sheet report for IT.
+- Support mode: privacy text lists exactly what is collected; optional "check before sending" review (hide areas, delete steps); `review` and `ocr_labels` settings.
+- Clicks on unnamed controls are labelled with nearby text via OCR (optional, needs Tesseract).
+- Review editor: Hide this area / Cancel buttons beside the selection.
 - Tray: logo icon with recording/paused badge, close-to-tray option.
 
 ## 1.0 - 2026-10-22

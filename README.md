@@ -18,6 +18,7 @@ Nothing leaves your computer: no cloud service, no account, no upload.
   - Masks (fixed areas, or windows matched by title that follow the window when it moves) are applied before anything is saved.
   - Styles: solid, soft gray, hatched, pixelated, frosted, background-matched, and faded (readable, for de-emphasis only).
   - Optional OCR redaction of IP addresses, MAC addresses, keys and e-mail addresses.
+- **Smarter captions:** controls that expose no name are labelled with nearby on-screen text (OCR, optional).
 - **Review editor:** delete, exclude, reorder, edit captions, add section headings and Note / Warning / Tip callouts, switch between friendly and technical wording, and mask anything you missed after the fact.
 - **Export:** Markdown, DOCX, HTML (single file), PDF and text, with header, footer, logo and an environment appendix.
 - **Support mode:** a one-button recorder for end users that produces a single ZIP (one-sheet HTML report, steps, system and network details) to send to IT.
@@ -115,6 +116,17 @@ boxes captured with their text, screenshots shrunk until the ZIP is under 10 MB,
 window closes. To change them, put `telestep_support.json` (see `telestep_support.example.json`) in the same folder as
 the exe: help-desk contact shown to the user, size limit, output folder, capture mode, `include_session`,
 `collect_network`, and so on. Support mode never touches the normal Telestep settings.
+
+After **Stop**, the user is asked whether to look through the screenshots first (`"review": "ask"`). The review
+window is the normal editor cut down to what a user needs: select a step, drag a box over anything private and click
+**Hide this area**, or delete steps, then **Looks good - create the ZIP**. Use `"always"` to open it every time or
+`"never"` for a pure one-click flow. The start screen tells the user exactly what is collected (including network
+details when `collect_network` is on).
+
+When a clicked control exposes no name (custom or game-engine apps) or is just a container, Telestep reads the text
+next to the click with OCR and adds it to the step (`Click near "Settings"`). This needs Tesseract on the PC doing the
+recording, is skipped silently without it (`"ocr_labels": false` turns it off), runs after redaction and masks so it
+can't read hidden text, and is never used for password fields.
 
 The window asks for the user's name and a phone number or email (pre-filled from Windows when it knows them) and puts
 them at the top of the report. Set `"require_contact": true` to insist on both, or `"ask_contact": false` to skip them.

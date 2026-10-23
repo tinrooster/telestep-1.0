@@ -731,6 +731,51 @@ def ocr_words(img):
     return words
 
 
+def pick_label(words, px, py, max_dist=90, max_words=4):
+    """The text a person would call 'the thing I clicked' - from OCR words [(text, l, t, r, b)] and a click point.
+
+    Takes the word nearest to the click (it must be within `max_dist` pixels), plus neighbours on the same line
+    that are separated only by a normal word space.  Returns '' when nothing readable is close by.
+    """
+    cand = []
+    for txt, l, t, r, b in words:
+        txt = txt.strip(".,;:()[]{}<>\"'|")
+        if sum(ch.isalnum() for ch in txt) < 2:
+            continue
+        dx = max(l - px, 0, px - r)
+        dy = max(t - py, 0, py - b)
+        cand.append(((dx * dx + dy * dy) ** 0.5, txt, l, t, r, b))
+    if not cand:
+        return ""
+    best = min(cand, key=lambda c: c[0])
+    if best[0] > max_dist:
+        return ""
+    h0 = max(best[5] - best[3], 1)
+    cy0 = (best[3] + best[5]) / 2
+    line = sorted((c for c in cand if abs((c[3] + c[5]) / 2 - cy0) <= 0.6 * h0), key=lambda c: c[2])
+    i = next(k for k, c in enumerate(line) if c is best)
+    lo = hi = i
+    while hi + 1 < len(line) and hi - lo + 1 < max_words and line[hi + 1][2] - line[hi][4] <= 0.6 * h0:
+        hi += 1
+    while lo > 0 and hi - lo + 1 < max_words and line[lo][2] - line[lo - 1][4] <= 0.6 * h0:
+        lo -= 1
+    return clean_text(" ".join(c[1] for c in line[lo:hi + 1]))[:40]
+
+
+def ocr_label_near(img, x, y, half_w=220, half_h=60):
+    """Readable text close to (x, y) in `img`, e.g. the caption of a control that exposes no name.
+    Raises OcrUnavailable when Tesseract is missing.  Only reads a small crop, so it is quick."""
+    l, t = max(0, int(x - half_w)), max(0, int(y - half_h))
+    r, b = min(img.width, int(x + half_w)), min(img.height, int(y + half_h))
+    if r - l < 8 or b - t < 8:
+        return ""
+    crop = img.crop((l, t, r, b)).convert("L")
+    k = 2
+    crop = crop.resize((crop.width * k, crop.height * k), Image.LANCZOS)
+    words = [(w, wl / k + l, wt / k + t, wr / k + l, wb / k + t) for w, wl, wt, wr, wb in ocr_words(crop)]
+    return pick_label(words, x, y)
+
+
 def ocr_match_rects(words, kinds):
     """Rects of words that look like any of `kinds` ('ip', 'mac', 'key', 'email')."""
     pats = [OCR_PATTERNS[k] for k in kinds if k in OCR_PATTERNS]

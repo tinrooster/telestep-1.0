@@ -27,13 +27,17 @@ PREVIEW_W, PREVIEW_H = 640, 380
 
 
 class ReviewWindow(tk.Toplevel):
-    def __init__(self, master, session, formats=None, own_root=False):
+    def __init__(self, master, session, formats=None, own_root=False, support=False, on_done=None, on_cancel=None):
+        """`support=True` is the cut-down 'check before sending' version used by Support mode: no report options,
+        a 'Looks good - create the ZIP' button (calls `on_done`) and Back (calls `on_cancel`)."""
         super().__init__(master)
         self.s = session
         self.own_root = own_root
-        self.title(f"Telestep - Review: {session.title}")
-        self.minsize(960, 640)
-        self.geometry("1120x740")
+        self.support, self.on_done, self.on_cancel = support, on_done, on_cancel
+        self.title("Check your recording before it is sent" if support else f"Telestep - Review: {session.title}")
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        self.minsize(min(960, sw - 40), min(640, sh - 80))
+        self.geometry(f"{min(1120, sw - 40)}x{min(740, sh - 80)}")
         self.exported = {}
         self._photo = None
         self._cur = None  # selected step
@@ -79,11 +83,13 @@ class ReviewWindow(tk.Toplevel):
         ent = ttk.Entry(top, textvariable=self.var_title)
         ent.grid(row=0, column=1, sticky="ew")
         ent.bind("<FocusOut>", lambda e: self._set_title())
-        ttk.Label(top, text="Wording").grid(row=0, column=2, padx=(12, 6))
+        self._wording_widgets = [ttk.Label(top, text="Wording")]
+        self._wording_widgets[0].grid(row=0, column=2, padx=(12, 6))
         cb = ttk.Combobox(top, textvariable=self.var_wording, values=["Friendly", "Technical"], width=10,
                           state="readonly")
         cb.grid(row=0, column=3)
         cb.bind("<<ComboboxSelected>>", lambda e: self._wording_changed())
+        self._wording_widgets.append(cb)
 
         pan = ttk.PanedWindow(root, orient="horizontal")
         pan.grid(row=1, column=0, sticky="nsew")
@@ -196,6 +202,31 @@ class ReviewWindow(tk.Toplevel):
         ttk.Button(fm, text="Open folder", command=self.open_folder).pack(side="right", padx=4)
         ttk.Button(fm, text="Copy steps as text", command=self.copy_text).pack(side="right", padx=4)
         ttk.Button(fm, text="Export", command=self.export).pack(side="right", padx=4)
+        if self.support:
+            self._support_layout(root, out)
+
+    def _support_layout(self, root, out):
+        """Replace the report options with a plain 'check, then send' bar."""
+        out.grid_remove()
+        for wd in self._wording_widgets:
+            wd.grid_remove()
+        bar = ttk.Frame(root, padding=(0, 8, 0, 0))
+        bar.grid(row=2, column=0, sticky="ew")
+        bar.columnconfigure(0, weight=1)
+        ttk.Label(bar, text="Look through the steps. Hide anything private (drag a box on the picture, then click "
+                            "\"Hide this area\"), or select a step and click Delete to leave it out.",
+                  wraplength=700, justify="left").grid(row=0, column=0, sticky="w")
+        ttk.Button(bar, text="Back", command=self.close).grid(row=0, column=1, padx=(8, 0))
+        tk.Button(bar, text="Looks good - create the ZIP", command=self.finish, bg="#2e7d32", fg="white", relief="flat",
+                  activebackground="#1b5e20", activeforeground="white", font=("Segoe UI", 11, "bold"), padx=14, pady=5,
+                  cursor="hand2").grid(row=0, column=2, padx=(8, 0))
+
+    def finish(self):
+        """Support mode: the user is happy with the recording."""
+        self.save()
+        self.destroy()
+        if self.on_done:
+            self.on_done()
 
     def _tree_focus(self):
         return self.focus_get() is self.tree
@@ -613,6 +644,10 @@ class ReviewWindow(tk.Toplevel):
     def close(self):
         self.save()
         self.destroy()
+        if self.support:
+            if self.on_cancel:
+                self.on_cancel()
+            return
         if self.own_root:
             self.master.destroy()
 
