@@ -85,12 +85,22 @@ permanently changes the saved screenshot(s), so it is not undone by closing the 
 In Settings, click a hotkey box and press the keys you want (for example Ctrl+Shift+F7). Esc cancels, Backspace resets
 to the default. A key can't be used twice, and plain letters need Ctrl, Alt or Shift.
 
+## Review editor: left-out steps and close-ups
+- The **In report** column shows a tick for steps that will be in the report. Click the box (or use *Leave out* / *Put back*)
+  to switch a step. Left-out steps are greyed, and the picture shows a red "LEFT OUT OF THE REPORT" tag.
+- **View** under the picture: *Whole screenshot*, or *Close-up of the click* at 50%, 100% or 200% of real size. The close-up
+  centres on the click, and hiding areas works the same way in either view.
+
+## Troubleshooting a slow or frozen window
+If the toolbar ever freezes for more than a few seconds, Telestep writes where it was stuck to `telestep_debug.log` next to
+the settings file (it is deleted on a clean exit when nothing was logged). Send that file along with a description.
+
 ## Right-click menus
-- **Step list (review editor):** edit or copy the caption, reset it to automatic wording, move up/down, exclude or include,
+- **Step list (review editor):** edit or copy the caption, reset it to automatic wording, move up/down, leave out of the report or put back,
   delete, insert a section heading or note above/below, select all.
 - **Picture (review editor):** *Select the clicked control* outlines the control you clicked (then choose a style or press
   **Hide this area**); *Hide selected area as...* hides it straight away in the style you pick; *...on every screenshot*;
-  switch Before/After; exclude or delete the step.
+  switch Before/After; leave out or delete the step.
 - **Toolbar:** record/pause/stop, add a note, take a screenshot, open a saved recording, show the recordings folder, settings,
   Help, About, hide to tray, Quit.
 

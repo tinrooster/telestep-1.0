@@ -51,6 +51,9 @@ class ReviewWindow(tk.Toplevel):
         self.var_title = tk.StringVar(value=session.title)
         self.var_wording = tk.StringVar(value="Friendly" if tpl.wording == "friendly" else "Technical")
         self.var_which = tk.StringVar(value="before")
+        self.var_view = tk.StringVar(value="whole")   # whole | close (close-up around the click)
+        self.var_zoom = tk.StringVar(value="100%")
+        self._crop = (0, 0, 1, 1)                      # part of the screenshot on screen (image pixels)
         self.var_style = tk.StringVar(value=core.MASK_STYLES["soft"])
         self.var_all = tk.BooleanVar(value=False)
         self.var_level = tk.StringVar(value="Note")
@@ -98,29 +101,35 @@ class ReviewWindow(tk.Toplevel):
         left = ttk.Frame(pan)
         left.rowconfigure(0, weight=1)
         left.columnconfigure(0, weight=1)
-        self.tree = ttk.Treeview(left, columns=("n", "kind", "cap"), show="headings", selectmode="extended")
-        for col, text, width, anchor in (("n", "#", 36, "e"), ("kind", "Type", 84, "w"), ("cap", "Caption", 330, "w")):
+        self.tree = ttk.Treeview(left, columns=("use", "n", "kind", "cap"), show="headings", selectmode="extended")
+        for col, text, width, anchor in (("use", "In report", 62, "center"), ("n", "#", 36, "e"),
+                                         ("kind", "Type", 84, "w"), ("cap", "Caption", 300, "w")):
             self.tree.heading(col, text=text)
             self.tree.column(col, width=width, anchor=anchor, stretch=(col == "cap"))
         sb = ttk.Scrollbar(left, command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
         self.tree.grid(row=0, column=0, sticky="nsew")
         sb.grid(row=0, column=1, sticky="ns")
-        self.tree.tag_configure("skip", foreground="#9aa0a6")
+        self.tree.tag_configure("skip", foreground="#9aa0a6", background="#f3f3f3")
         self.tree.tag_configure("section", background="#e8eef7", font=("Segoe UI", 9, "bold"))
         self.tree.tag_configure("note", background="#eef6ff")
         self.tree.tag_configure("warning", background="#fff4e0")
         self.tree.tag_configure("tip", background="#eaf7ee")
         self.tree.bind("<<TreeviewSelect>>", lambda e: self.on_select())
         self.tree.bind("<Button-3>", self._tree_menu)
+        self.tree.bind("<Button-1>", self._tree_click, add="+")
         self.tree.bind("<Control-a>", lambda e: (self.tree.selection_set(self.tree.get_children()), "break")[1])
         bar = ttk.Frame(left)
         bar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         for text, cmd in (("Up", lambda: self.move(-1)), ("Down", lambda: self.move(1)),
-                          ("Delete", self.delete_selected), ("Exclude / include", self.toggle_skip),
+                          ("Delete", self.delete_selected), ("Leave out", self.toggle_skip),
                           ("+ Section", self.add_section), ("+ Note", self.add_note)):
-            ttk.Button(bar, text=text, command=cmd, width=len(text) + 2 if len(text) < 8 else 15).pack(
-                side="left", padx=(0, 4))
+            b = ttk.Button(bar, text=text, command=cmd, width=len(text) + 2 if len(text) < 8 else 11)
+            b.pack(side="left", padx=(0, 4))
+            if text == "Leave out":
+                self.btn_skip = b
+        ttk.Label(left, text="\u2611 = in the report    \u2610 = left out (greyed). Click the box, or use the button, to switch.",
+                  foreground="gray").grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
         pan.add(left, weight=1)
 
         # ---- right: preview + editors ----
@@ -136,8 +145,19 @@ class ReviewWindow(tk.Toplevel):
         self.cv.bind("<Button-3>", self._cv_menu)
         self.cv.bind("<Configure>", lambda e: self.show_preview())
 
+        vbar = ttk.Frame(right)
+        vbar.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        ttk.Label(vbar, text="View:").pack(side="left")
+        ttk.Radiobutton(vbar, text="Whole screenshot", value="whole", variable=self.var_view,
+                        command=self._view_changed).pack(side="left", padx=(6, 0))
+        ttk.Radiobutton(vbar, text="Close-up of the click", value="close", variable=self.var_view,
+                        command=self._view_changed).pack(side="left", padx=(10, 0))
+        self.cmb_zoom = ttk.Combobox(vbar, textvariable=self.var_zoom, values=["50%", "100%", "200%"], width=5,
+                                     state="readonly")
+        self.cmb_zoom.pack(side="left", padx=(6, 0))
+        self.cmb_zoom.bind("<<ComboboxSelected>>", lambda e: self.show_preview())
         info = ttk.Frame(right)
-        info.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        info.grid(row=2, column=0, sticky="ew", pady=(2, 0))
         self.lbl_info = ttk.Label(info, text="", foreground="gray")
         self.lbl_info.pack(side="left")
         self.rb_before = ttk.Radiobutton(info, text="Before", value="before", variable=self.var_which,
@@ -148,7 +168,7 @@ class ReviewWindow(tk.Toplevel):
         self.rb_before.pack(side="right", padx=(0, 6))
 
         cap = ttk.LabelFrame(right, text="Caption (shown in the report)", padding=6)
-        cap.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        cap.grid(row=3, column=0, sticky="ew", pady=(6, 0))
         cap.columnconfigure(0, weight=1)
         self.txt = tk.Text(cap, height=4, wrap="word", font=("Segoe UI", 10), undo=True)
         self.txt.grid(row=0, column=0, columnspan=3, sticky="ew")
@@ -161,7 +181,7 @@ class ReviewWindow(tk.Toplevel):
         self.cmb_level.bind("<<ComboboxSelected>>", lambda e: self._level_changed())
 
         mk = ttk.LabelFrame(right, text="Hide private information in the screenshot", padding=6)
-        mk.grid(row=3, column=0, sticky="ew", pady=(6, 0))
+        mk.grid(row=4, column=0, sticky="ew", pady=(6, 0))
         self.btn_mask = tk.Button(mk, text="Hide this area", command=self.apply_mask, state="disabled", relief="flat",
                                   font=("Segoe UI", 10, "bold"), padx=12, pady=3, cursor="hand2")
         self.btn_mask.grid(row=0, column=0, sticky="w")
@@ -251,8 +271,7 @@ class ReviewWindow(tk.Toplevel):
             kind = LEVEL_LABEL.get(st.level, "Note")
         if st.skip:
             tags.append("skip")
-            kind += " (excluded)"
-        return (n, kind, cap), tuple(tags)
+        return ("\u2610" if st.skip else "\u2611", n, kind, cap), tuple(tags)
 
     def refresh(self, select=None):
         keep = select if select is not None else list(self.tree.selection())
@@ -283,6 +302,7 @@ class ReviewWindow(tk.Toplevel):
         self._cur = sel[0] if len(sel) == 1 else None
         st = self._cur
         self.var_which.set("before")
+        self._update_skip_button()
         self.txt.configure(state="normal")
         self.txt.delete("1.0", "end")
         self._txt_wording = self.wording
@@ -329,11 +349,30 @@ class ReviewWindow(tk.Toplevel):
             self._update_hint()
             return
         self._img_size = img.size
-        self._scale = min(cw / img.width, ch / img.height, 1.0)
-        size = (max(1, int(img.width * self._scale)), max(1, int(img.height * self._scale)))
-        self._photo = ImageTk.PhotoImage(img.resize(size, Image.LANCZOS))
+        W, H = img.size
+        pt = (st.marker or {}).get("pt")
+        close = self.var_view.get() == "close" and pt
+        self.cmb_zoom.state(["!disabled"] if pt else ["disabled"])
+        if close:
+            k = {"50%": 0.5, "100%": 1.0, "200%": 2.0}.get(self.var_zoom.get(), 1.0)
+            vw, vh = min(W, int(cw / k)), min(H, int(ch / k))
+            x0 = int(min(max(0, pt[0] - vw / 2), W - vw))
+            y0 = int(min(max(0, pt[1] - vh / 2), H - vh))
+            self._crop = (x0, y0, x0 + vw, y0 + vh)
+            shown, self._scale = img.crop(self._crop), min(k, cw / vw, ch / vh)
+        else:
+            self._crop, shown = (0, 0, W, H), img
+            self._scale = min(cw / W, ch / H, 1.0)
+        size = (max(1, int(shown.width * self._scale)), max(1, int(shown.height * self._scale)))
+        self._photo = ImageTk.PhotoImage(shown.resize(size, Image.LANCZOS))
         self._off = ((cw - size[0]) // 2, (ch - size[1]) // 2)
         self.cv.create_image(self._off[0], self._off[1], image=self._photo, anchor="nw")
+        if st.skip:  # on-screen only: this step will not be in the report
+            t = self.cv.create_text(self._off[0] + 14, self._off[1] + 12, anchor="nw", fill="white",
+                                    font=("Segoe UI", 10, "bold"), text="LEFT OUT OF THE REPORT")
+            x0_, y0_, x1_, y1_ = self.cv.bbox(t)
+            r_ = self.cv.create_rectangle(x0_ - 6, y0_ - 3, x1_ + 6, y1_ + 3, fill="#b71c1c", outline="")
+            self.cv.tag_lower(r_, t)
         self.lbl_info.configure(text=self._info(st))
         # hint banner (only on screen, never in the saved image)
         bx, by = self._off[0] + 8, self._off[1] + size[1] - 30
@@ -416,7 +455,7 @@ class ReviewWindow(tk.Toplevel):
         m.add_command(label="Move down", accelerator="Alt+Down", command=lambda: self.move(1), state=on(one))
         m.add_separator()
         all_skipped = bool(sel) and all(s.skip for s in sel)
-        m.add_command(label="Include in report" if all_skipped else "Exclude from report", command=self.toggle_skip,
+        m.add_command(label="Put back in report" if all_skipped else "Leave out of report", command=self.toggle_skip,
                       state=on(sel))
         m.add_command(label="Delete" + (f" {len(sel)} steps" if len(sel) > 1 else ""), accelerator="Del",
                       command=self.delete_selected, state=on(sel))
@@ -444,7 +483,13 @@ class ReviewWindow(tk.Toplevel):
 
     def _select_image_rect(self, l, t, r, b):
         """Select an area given in screenshot pixels, exactly as if it had been dragged on the picture."""
+        cl, ct, cr, cb = self._crop
+        if self.var_view.get() == "close" and not (cl <= l and ct <= t and r <= cr and b <= cb):
+            self.var_view.set("whole")  # the control isn't inside the close-up: show everything
+            self.show_preview()
+            cl, ct = self._crop[:2]
         k, (ox, oy) = self._scale, self._off
+        l, r, t, b = l - cl, r - cl, t - ct, b - ct
         self.cv.delete("hint")
         self._drop_selbar()
         if self._sel_rect:
@@ -493,7 +538,7 @@ class ReviewWindow(tk.Toplevel):
         m.add_radiobutton(label="Show the 'after' screenshot", variable=self.var_which, value="after",
                           command=self.show_preview, state=on(has_after))
         m.add_separator()
-        m.add_command(label="Include in report" if st and st.skip else "Exclude from report", command=self.toggle_skip,
+        m.add_command(label="Put back in report" if st and st.skip else "Leave out of report", command=self.toggle_skip,
                       state=on(st))
         m.add_command(label="Delete this step", command=self.delete_selected, state=on(st))
         self._popup(m, e)
@@ -569,10 +614,10 @@ class ReviewWindow(tk.Toplevel):
         x0, y0, x1, y1 = self.cv.coords(self._sel_rect)
         ox, oy = self._off
         k = self._scale
-        w, h = self._img_size
-        l, r = sorted(((x0 - ox) / k, (x1 - ox) / k))
-        t, b = sorted(((y0 - oy) / k, (y1 - oy) / k))
-        l, t, r, b = max(0, l), max(0, t), min(w, r), min(h, b)
+        cl, ct, cr, cb = self._crop
+        l, r = sorted((cl + (x0 - ox) / k, cl + (x1 - ox) / k))
+        t, b = sorted((ct + (y0 - oy) / k, ct + (y1 - oy) / k))
+        l, t, r, b = max(cl, l), max(ct, t), min(cr, r), min(cb, b)
         return (l, t, r, b) if r - l >= 2 and b - t >= 2 else None
 
     def apply_mask(self, confirm=True):
@@ -664,7 +709,7 @@ class ReviewWindow(tk.Toplevel):
             return
         if confirm and not messagebox.askyesno(
                 "Telestep", f"Delete {len(sel)} entr{'y' if len(sel) == 1 else 'ies'} and their screenshots?\n\n"
-                "Tip: 'Exclude / include' hides a step from the report without deleting it.", parent=self):
+                "Tip: 'Leave out' keeps a step but drops it from the report (you can put it back).", parent=self):
             return
         kids = list(self.tree.get_children())
         idx = kids.index(sel[0].id) if sel[0].id in kids else 0
@@ -682,6 +727,31 @@ class ReviewWindow(tk.Toplevel):
         if sel:
             self.s.save()
             self.refresh([st.id for st in sel])
+            self._update_skip_button()
+            self.show_preview()
+
+    def _update_skip_button(self):
+        sel = self.selected_steps()
+        out = bool(sel) and all(s.skip for s in sel)
+        self.btn_skip.configure(text="Put back" if out else "Leave out", state="normal" if sel else "disabled")
+
+    def _tree_click(self, e):
+        """Clicking the tick box in the 'In report' column switches that step in or out of the report."""
+        if self.tree.identify_region(e.x, e.y) != "cell" or self.tree.identify_column(e.x) != "#1":
+            return None
+        iid = self.tree.identify_row(e.y)
+        st = self.s.find(iid) if iid else None
+        if not st:
+            return None
+        st.skip = not st.skip
+        self.s.save()
+        self.refresh([iid])
+        self._update_skip_button()
+        self.show_preview()
+        return "break"
+
+    def _view_changed(self):
+        self.show_preview()
 
     def _insert_index(self, below=False):
         sel = self.selected_steps()

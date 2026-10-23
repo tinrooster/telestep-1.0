@@ -14,6 +14,7 @@ Screen overlays (click-through, hidden from screenshots on Windows 10 2004+/11):
     coloured frame = captured area (red recording, amber paused, blue preview, white flash = shot taken)
     magenta shading = masked areas / hidden windows    gray shading = excluded taskbar
 """
+import datetime as dt
 import os
 import queue
 import threading
@@ -141,6 +142,15 @@ class App:
         self.toast_until = 0.0
         self._pos_seen, self._pos_changed = None, 0.0
         self._ocr_checked = False
+        self._ocr_result = None
+        self._last_poll = time.monotonic()
+        self._dbg = None
+        try:  # slow-spot diagnostics: stays empty (and is deleted on exit) unless the window freezes
+            import faulthandler  # noqa: F401,F811
+            self._dbg_path = Path(settings_path or cfg.settings_path()).with_name("telestep_debug.log")
+            self._dbg = open(self._dbg_path, "a", buffering=1, encoding="utf-8")
+        except Exception:
+            self._dbg = None
         self._poll_job = None
 
         core.SKIP_TITLES.add(w.OVERLAY_TITLE)
@@ -191,6 +201,7 @@ class App:
         self.var_tray, self.var_hidetray = tk.BooleanVar(value=d["tray"]), tk.BooleanVar(value=d["hide_in_tray"])
         self.var_closetray = tk.BooleanVar(value=d["close_to_tray"])
         self.var_overlay = tk.BooleanVar(value=d["overlays"])
+        self.var_preview = tk.BooleanVar(value=True)  # outline while setting up (this session only)
         self.var_hide = tk.BooleanVar(value=d["hide_from_capture"])
         self.var_hk = {k: tk.StringVar(value=d["hotkeys"].get(k, cfg.DEFAULT_HOTKEYS[k])) for k in cfg.DEFAULT_HOTKEYS}
         self.var_cfg = tk.BooleanVar(value=False)
@@ -228,7 +239,8 @@ class App:
                                    wraplength=int(360 * self.scale), justify="left")
 
         self.cfg = ttk.Frame(main, padding=(0, 8, 0, 0))
-        self.nb = ttk.Notebook(self.cfg)
+        ttk.Style(self.root).layout("Plain.TNotebook.Tab", [])  # our own, clearer tab strip is drawn instead
+        self.nb = ttk.Notebook(self.cfg, style="Plain.TNotebook")
         self.nb.pack(fill="both", expand=True)
         self.tab_general, self.tab_capture = ttk.Frame(self.nb, padding=8), ttk.Frame(self.nb, padding=8)
         self.tab_privacy, self.tab_report = ttk.Frame(self.nb, padding=8), ttk.Frame(self.nb, padding=8)
@@ -242,6 +254,7 @@ class App:
         self._tab_privacy()
         self._tab_report()
         self._tab_options()
+        self._make_tabbar()
         self.nb.bind("<<NotebookTabChanged>>", lambda e: self._tab_changed())
 
         self.overlays = w.OverlayManager(self)
@@ -300,7 +313,8 @@ class App:
         self.btn_area.grid(row=0, column=1, padx=(4, 0))
         self._grid(t, 0, "Capture", f)
         self.chk_taskbar = self._grid(t, 1, "", ttk.Checkbutton(t, text="Exclude taskbar", variable=self.var_taskbar,
-                                                                 command=self.update_scope_label))
+                                                                 command=lambda: (self.update_scope_label(),
+                                                                                  self.update_overlays())))
         ttk.Label(t, textvariable=self.var_scope, wraplength=int(330 * self.scale), justify="left",
                   foreground="gray").grid(row=2, column=0, columnspan=2, sticky="w")
         self.cmb_after = self._grid(t, 3, "Screenshot", ttk.Combobox(t, textvariable=self.var_after, state="readonly",
@@ -321,6 +335,9 @@ class App:
             ("Error / message boxes + admin-window warning", self.var_dialogs))]
         for i, c in enumerate(self.rec_checks):
             c.grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 12))
+        ttk.Checkbutton(t, text="Show capture outline",
+                        variable=self.var_preview, command=self.update_overlays).grid(
+            row=6, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self.lock_capture = [self.cmb_mode, self.btn_area, self.chk_taskbar, self.cmb_after, self.spn_delay,
                              self.spn_width] + self.rec_checks
 
@@ -430,11 +447,56 @@ class App:
                 return f'Already used for "{names[other]}"'
         return None
 
+    TAB_ACTIVE, TAB_IDLE, TAB_HOVER, TAB_ACCENT = "#ffffff", "#d5dae0", "#e6e9ed", "#1565c0"
+
+    def _make_tabbar(self):
+        """Separate, high-contrast tabs: the current one is white, bold, blue-underlined; the rest are grey."""
+        self.tabbar = tk.Frame(self.cfg, bg="#b8bfc7", padx=0, pady=0)
+        self.tabbar.pack(fill="x", before=self.nb, pady=(0, 0))
+        self._tabs = []
+        for tab in (self.tab_general, self.tab_capture, self.tab_privacy, self.tab_report, self.tab_options):
+            cell = tk.Frame(self.tabbar, bd=0)
+            lbl = tk.Label(cell, text=self.nb.tab(tab, "text"), padx=10, pady=5, cursor="hand2")
+            bar = tk.Frame(cell, height=3)
+            lbl.pack(fill="x")
+            bar.pack(fill="x")
+            cell.pack(side="left", padx=(0, 3), pady=(3, 0))
+            for wd in (cell, lbl, bar):
+                wd.bind("<Button-1>", lambda e, t=tab: self.nb.select(t))
+            lbl.bind("<Enter>", lambda e, t=tab: self._paint_tabs(hover=t))
+            lbl.bind("<Leave>", lambda e: self._paint_tabs())
+            self._tabs.append((tab, lbl, bar))
+        mini = tk.Label(self.tabbar, text="\u25b2", bg="#b8bfc7", fg="#263238", padx=9, pady=4,
+                        cursor="hand2", font=("Segoe UI", 10))
+        mini.pack(side="right", padx=(0, 4), pady=(3, 0))
+        mini.bind("<Button-1>", lambda e: self._collapse_settings())
+        mini.bind("<Enter>", lambda e: mini.configure(bg="#e6e9ed"))
+        mini.bind("<Leave>", lambda e: mini.configure(bg="#b8bfc7"))
+        w.Tip(mini, "Collapse to the mini toolbar")
+        self._paint_tabs()
+
+    def _collapse_settings(self):
+        self.var_cfg.set(False)
+        self.toggle_config()
+
+    def _paint_tabs(self, hover=None):
+        cur = self.nb.select()
+        for tab, lbl, bar in self._tabs:
+            on = str(tab) == str(cur)
+            bg = self.TAB_ACTIVE if on else (self.TAB_HOVER if tab is hover else self.TAB_IDLE)
+            lbl.configure(bg=bg, fg="#0d47a1" if on else "#4a5560",
+                          font=("Segoe UI", 9, "bold" if on else "normal"))
+            bar.configure(bg=self.TAB_ACCENT if on else bg)
+
     def _tab_changed(self):
+        self._paint_tabs()
         if not self._ocr_checked and self.nb.select() == str(self.tab_privacy):
             self._ocr_checked = True
-            self.var_ocr_note.set("Tesseract found - OCR features are active." if core.ocr_available()
-                                  else "Tesseract is not installed, so the OCR options do nothing yet (see README).")
+            self.var_ocr_note.set("Checking for Tesseract...")
+
+            def probe():  # can be slow the first time (antivirus scans tesseract.exe): never on the UI thread
+                self._ocr_result = bool(core.ocr_available())
+            threading.Thread(target=probe, daemon=True).start()
 
     # ------------------------------------------------------------------ widget helpers
     def _set_icon(self, widget, kind):
@@ -695,6 +757,7 @@ class App:
     def on_mode_change(self, _event=None):
         self._enable(self.btn_area, self.current_mode()[0] == "region")
         self.update_scope_label()
+        self.update_overlays()
         if self.current_mode()[0] == "region" and not self.region:
             self.root.after(50, self.select_area)  # prompt right away the first time
 
@@ -949,13 +1012,27 @@ class App:
             self.tray.stop()
 
     # ------------------------------------------------------------------ periodic sync
+    def _setting_up(self):
+        """Preview outline only when Settings is open on Capture/Privacy AND Telestep itself has the focus."""
+        try:
+            return bool(self.var_cfg.get() and self.var_preview.get()
+                        and self.root.state() == "normal"
+                        and self.nb.select() in (str(self.tab_capture), str(self.tab_privacy))
+                        and self._app_active())
+        except tk.TclError:
+            return False
+
+    def _app_active(self):
+        active = core.own_process_active()
+        return (self.root.focus_displayof() is not None) if active is None else active
+
     def update_overlays(self):
         if not self.var_overlay.get():
             self.overlays.hide()
         elif self.rec:
             self.overlays.update("paused" if self.rec.paused else "rec")
-        elif self.var_cfg.get():
-            self.overlays.update("preview")  # show setup while configuring
+        elif self._setting_up():
+            self.overlays.update("preview")  # only while the user is actively setting up
         else:
             self.overlays.hide()
 
@@ -999,6 +1076,23 @@ class App:
 
     def poll(self):
         """Keep the UI in sync with the recorder (hotkeys included) and refresh overlays."""
+        now = time.monotonic()
+        gap = now - self._last_poll
+        self._last_poll = now
+        if self._dbg:
+            try:
+                import faulthandler  # if nothing runs for 3 s, dump where the UI thread is stuck (repeats)
+                faulthandler.dump_traceback_later(3.0, repeat=True, file=self._dbg)
+                if 1.5 < gap < 120:
+                    tab = self.nb.tab(self.nb.select(), "text") if self.var_cfg.get() else "-"
+                    self._dbg.write(f"[{dt.datetime.now():%H:%M:%S}] window was unresponsive for {gap:.1f}s "
+                                    f"(settings tab: {tab}, state: {self.state})\n")
+            except Exception:
+                pass
+        if self._ocr_result is not None:
+            self.var_ocr_note.set("Tesseract found - OCR features are active." if self._ocr_result
+                                  else "Tesseract is not installed, so the OCR options do nothing yet (see README).")
+            self._ocr_result = None
         self.toolbar_rect = w.window_screen_rect(self.root)
         rec = self.rec
         self._handle_events()
@@ -1019,7 +1113,10 @@ class App:
             self.var_toast.set("")
             self.lbl_toast.grid_remove()
         self._track_position()
+        t0 = time.monotonic()
         self.update_overlays()
+        if self._dbg and time.monotonic() - t0 > 0.4:
+            self._dbg.write(f"[{dt.datetime.now():%H:%M:%S}] overlay update took {time.monotonic() - t0:.1f}s\n")
         self._poll_job = self.root.after(120, self.poll)
 
     def on_close(self, force=False):
@@ -1037,6 +1134,15 @@ class App:
             self.root.after_cancel(self._poll_job)
         except Exception:
             pass
+        if self._dbg:
+            try:
+                import faulthandler
+                faulthandler.cancel_dump_traceback_later()
+                self._dbg.close()
+                if self._dbg_path.stat().st_size == 0:
+                    self._dbg_path.unlink()
+            except Exception:
+                pass
         self.root.destroy()
 
 

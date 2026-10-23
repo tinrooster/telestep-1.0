@@ -155,6 +155,24 @@ def foreground_info():
         return dict(_EMPTY_INFO)
 
 
+def own_process_active():
+    """True/False: is the foreground window one of this program's (toolbar, dialogs, drop-downs)?  None if unknown.
+    More reliable than Tk's focus, which reads 'none' right after a dialog or drop-down closes."""
+    try:
+        import os
+        from ctypes import wintypes
+        u = _dll("user32")
+        hwnd = _sig(u.GetForegroundWindow, wintypes.HWND)()
+        if not hwnd:
+            return False
+        pid = wintypes.DWORD()
+        _sig(u.GetWindowThreadProcessId, wintypes.DWORD, wintypes.HWND, ctypes.POINTER(wintypes.DWORD))(
+            hwnd, ctypes.byref(pid))
+        return pid.value == os.getpid()
+    except Exception:
+        return None
+
+
 def foreground_title():
     return foreground_info()["title"]
 

@@ -12,3 +12,4 @@ session.json
 save_errors.log
 .idea/
 .vscode/
+telestep_debug.log

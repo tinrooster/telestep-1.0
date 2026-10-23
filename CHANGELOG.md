@@ -2,6 +2,14 @@
 
 ## Unreleased
 - Support mode (`--support`, `build_support_exe.bat`): one-button recorder that writes a single ZIP with a one-sheet report for IT.
+- The capture outline (preview) now shows only while Telestep is the active window and Settings is on the Capture or
+  Privacy tab; the "Show capture outline" checkbox on the Capture tab turns it off.
+- The capture outline follows setting changes immediately (it could show a stale area in Window mode).
+- A collapse button at the right of the settings tabs collapses back to the mini toolbar.
+- Settings tabs are clearly separated: the current tab is white, bold and underlined.
+- Review editor: an "In report" tick column, Leave out / Put back, a "left out" tag on the picture, and a
+  close-up view of the click (50/100/200%).
+- The Tesseract check no longer runs on the UI thread; freezes are written to telestep_debug.log.
 - Hotkeys are set by clicking the box and pressing the keys (no typing of names).
 - Review button opens a list of saved recordings (newest first) instead of a bare folder dialog; clearer tooltips.
 - Stop icon is dark red (was dark grey).

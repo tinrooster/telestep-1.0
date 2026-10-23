@@ -272,6 +272,9 @@ class OverlayManager:
         mode, monitor = app.current_mode()
         opts = app.capture_opts()
         pos = core.cursor_pos() or (screens[1]["left"] + 10, screens[1]["top"] + 10)
+        key = (mode, monitor, opts.exclude_taskbar, opts.region)
+        if key != getattr(self, "_key", None):  # setting changed: a remembered outline would be stale
+            self._key, self.last_box = key, None
 
         # Fixed areas are evaluated at their centre; "screen"/"window" follow the cursor.
         box = None
@@ -282,8 +285,10 @@ class OverlayManager:
             if app.region:
                 l, t, r, b = app.region
                 box = core.capture_box(opts, screens, (l + r) // 2, (t + b) // 2)
-        elif mode == "window" and app.over_toolbar(pos) and self.last_box:
-            box = self.last_box  # hovering the toolbar: keep showing the last real window
+        elif mode == "window" and app.over_toolbar(pos):
+            # hovering the toolbar: keep the last real window, or (nothing yet) the screen being used
+            box = self.last_box or core.capture_box(
+                type(opts)("screen", monitor, opts.region, opts.exclude_taskbar, opts.masks), screens, *pos)
         else:
             box = core.capture_box(opts, screens, *pos)
         self.last_box = box or self.last_box
