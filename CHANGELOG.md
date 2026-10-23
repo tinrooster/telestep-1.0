@@ -6,6 +6,8 @@
   Privacy tab; the "Show capture outline" checkbox on the Capture tab turns it off.
 - The capture outline follows setting changes immediately (it could show a stale area in Window mode).
 - A collapse button at the right of the settings tabs collapses back to the mini toolbar.
+- build_support_exe.bat now builds a folder (--onedir) and zips it with the settings file and a read-me, printing the
+  SHA-256, so it can be shared as a link. The single-exe build is kept as build_support_onefile.bat.
 - Settings tabs are clearly separated: the current tab is white, bold and underlined.
 - Review editor: an "In report" tick column, Leave out / Put back, a "left out" tag on the picture, and a
   close-up view of the click (50/100/200%).

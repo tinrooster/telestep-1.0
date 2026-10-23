@@ -13,3 +13,4 @@ save_errors.log
 .idea/
 .vscode/
 telestep_debug.log
+telestep_support.json

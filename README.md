@@ -100,7 +100,8 @@ Telestep writes one ZIP to the Desktop and shows its name; the user attaches it 
 
 ```
 Telestep.exe --support            (or:  python telestep.py --support)
-build_support_exe.bat             builds dist\Telestep-Support.exe, which always starts in support mode
+build_support_exe.bat             builds dist\Telestep-Support.zip (folder build); the exe inside always starts in support mode
+build_support_onefile.bat         builds a single dist\Telestep-Support.exe instead (flagged by antivirus more often)
 ```
 
 The ZIP contains:
@@ -134,11 +135,16 @@ them at the top of the report. Set `"require_contact": true` to insist on both, 
 
 ### Sending it to a user
 
-1. Run `build_support_exe.bat`.
-2. Edit `dist\telestep_support.json` (set `contact` to your help-desk details).
-3. Send **both** files, `Telestep-Support.exe` and `telestep_support.json`, in one folder (a zip works well). The exe
-   alone also runs, with the defaults and no contact line.
-4. The user keeps them together, double-clicks the exe and follows the window; they send you the ZIP it creates.
+1. Copy `telestep_support.example.json` to `telestep_support.json` in the repo folder and set `contact` etc. (If you
+   skip this, the example settings are used.)
+2. Run `build_support_exe.bat`. It builds a folder (`--onedir`, which antivirus flags less than a single exe) and zips it
+   as `dist\Telestep-Support.zip`, with the settings file and a read-me inside, then prints the zip's SHA-256.
+3. Share that zip as a link (SharePoint/OneDrive, an internal share or a GitLab release) rather than an email attachment,
+   and publish the SHA-256 next to it.
+4. The user extracts the zip, double-clicks `Telestep-Support.exe` and follows the window; they send you the ZIP it creates.
+
+Prefer a single file? `build_support_onefile.bat` builds `dist\Telestep-Support.exe`; send it together with
+`telestep_support.json` in one folder. It works the same, but single-file exes trip antivirus and SmartScreen more often.
 
 ## Build a single .exe
 
