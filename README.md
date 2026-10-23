@@ -1,93 +1,133 @@
 # telestep
+# Telestep
 
+Local, offline step recorder for Windows - a replacement for the Problem Steps Recorder (PSR).
+It records what you click, with annotated screenshots, window and application names, and the name of the control you
+touched, then exports the result as Markdown, Word, HTML, PDF or plain text.
 
+Nothing leaves your computer: no cloud service, no account, no upload.
 
-## Getting started
+## Features
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+- **Recording:** clicks, double-clicks, drags, keyboard shortcuts, optional scrolling, typed text (off, count only, or text; never passwords), manual screenshots, and error or message boxes with their text.
+- **Per-step details:** window title, application name and version, and the UI element clicked (via UI Automation). A machine summary (`environment.txt`) is saved with each session.
+- **After-click capture:** optionally capture the result after the click, with a configurable delay.
+- **Capture area:** screen under the click, all screens, one screen, the window under the click, or a custom area. Optional taskbar exclusion.
+- **Privacy:**
+  - Masks (fixed areas, or windows matched by title that follow the window when it moves) are applied before anything is saved.
+  - Styles: solid, soft gray, hatched, pixelated, frosted, background-matched, and faded (readable, for de-emphasis only).
+  - Optional OCR redaction of IP addresses, MAC addresses, keys and e-mail addresses.
+- **Review editor:** delete, exclude, reorder, edit captions, add section headings and Note / Warning / Tip callouts, switch between friendly and technical wording, and mask anything you missed after the fact.
+- **Export:** Markdown, DOCX, HTML (single file), PDF and text, with header, footer, logo and an environment appendix.
+- **Toolbar:** icon mini-bar with on-screen overlays showing what is captured and masked, saved presets, hotkeys, optional tray icon, and a built-in Help / About window (F1).
+- **Safe by design:** the session is autosaved after every step, so a crash loses nothing.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## Requirements
 
-## Add your files
+- Windows 10 (2004 or later) or Windows 11
+- Python 3.10 or newer
+- Optional: [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki) for OCR redaction
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Install
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/ac-pcr1/telestep.git
-git branch -M main
-git push -uf origin main
+git clone https://gitlab.com/ac-pcr1/telestep.git
+cd telestep
+python -m pip install -r requirements.txt
+python telestep.py
 ```
 
-## Integrate with your tools
+`run_telestep.bat` starts the toolbar without a console window. Run it as administrator to record clicks inside
+elevated (admin) windows; without that, Telestep warns you when an admin window is in front.
 
-* [Set up project integrations](https://gitlab.com/ac-pcr1/telestep/-/settings/integrations)
+### Optional extras
 
-## Collaborate with your team
-
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```
+python -m pip install pytesseract                  # OCR redaction (also install the Tesseract program)
+winget install --id UB-Mannheim.TesseractOCR -e
+python -m pip install pystray                      # tray icon
+```
 
 ## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+
+1. Open the settings (gear): choose the capture area, masks and keyboard behaviour, or load a preset.
+2. Press **Record**, do the task, then press **Stop** or **F10**.
+3. The review editor opens. Tidy the steps, then **Export**.
+
+| Hotkey | Action |
+|---|---|
+| F9 | pause / resume |
+| F10 | stop |
+| Ctrl+Shift+F7 | add a note, warning or tip |
+| Ctrl+Shift+F8 | take a screenshot now |
+| Ctrl+Shift+F6 | delete the last step |
+| F1 | help |
+
+Hotkeys can be changed in Options.
+
+### Output
+
+```
+Documents\Telestep\<yyyymmdd_hhmmss>_<title>\
+    session.json        all steps and settings (autosaved)
+    raw\                screenshots without markers (masks already applied)
+    images\             annotated copies, rebuilt on every export
+    steps.md / .docx / .html / .pdf / .txt
+    environment.txt
+```
+
+Open an earlier session from the toolbar (list icon), or from the command line.
+
+### Command line
+
+```
+python telestep_recorder.py --title "Fix Teams audio" --capture window --hide-window "Password:soft" --keys none --format md,docx,html
+python telestep_recorder.py --review <session folder>
+python telestep_recorder.py --export <session folder> --format md,docx,html,pdf
+```
+
+`--export` also imports a version-1 recording (a folder with `steps.md` and `images/`). Run
+`python telestep_recorder.py --help` for every option.
+
+## Build a single .exe
+
+```
+python -m pip install pyinstaller
+build_exe.bat
+```
+
+This produces `dist\Telestep.exe`. The README is bundled inside it and shows in the Help window. Add `--uac-admin`
+to the PyInstaller line in `build_exe.bat` if you want it to always start elevated. Tesseract is not bundled; install it
+on each PC that needs OCR redaction.
+
+## Project layout
+
+| File | Purpose |
+|---|---|
+| `telestep.py` | toolbar (main entry point) |
+| `telestep_recorder.py` | recording engine and command line |
+| `telestep_core.py` | Windows helpers, hotkeys, masks, OCR, annotation |
+| `telestep_model.py` | session data (`session.json`), wording, environment info |
+| `telestep_report.py` | Markdown, DOCX, HTML, PDF and text export |
+| `telestep_review.py` | review and edit window |
+| `telestep_widgets.py` | icons, overlays, dialogs |
+| `telestep_settings.py` | saved settings and presets |
+| `telestep_help.py` | Help and About window |
+
+## Known limits
+
+- Recording is Windows only.
+- Message-box detection covers classic Windows dialogs; modern in-app dialogs show up as a normal screenshot after your click.
+- The toolbar and overlays are hidden from screenshots using `SetWindowDisplayAffinity`, which needs Windows 10 2004 or later.
+- A window mask hides the whole window rectangle, including parts of other windows that overlap it.
+- OCR can miss text. Review the screenshots before sharing anything sensitive.
 
 ## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+Contact TE_dev: alan.c.hay@abc.com
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+MIT - Copyright (c) 2026 TE_dev.
+
+Third-party libraries keep their own licenses. pynput and pystray are LGPL; keep their notices if you distribute the built .exe.
