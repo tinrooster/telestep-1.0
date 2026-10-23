@@ -3,9 +3,11 @@ telestep_widgets.py - Tk building blocks for the Telestep toolbar: icons, toolti
 screen overlays (capture frame / masks / taskbar), the area picker, note and window-picker dialogs.
 """
 import ctypes
+import json
 import time
 import tkinter as tk
-from tkinter import ttk
+from pathlib import Path
+from tkinter import filedialog, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
@@ -469,3 +471,78 @@ class WindowPicker(tk.Toplevel):
     def ok(self):
         self.result = self.var.get().strip() or None
         self.destroy()
+
+
+def list_sessions(base, limit=200):
+    """[(folder, created 'YYYY-MM-DD HH:MM', title, step count)] for recordings found in `base`, newest first."""
+    rows = []
+    try:
+        kids = [d for d in Path(base).iterdir() if d.is_dir() and (d / "session.json").exists()]
+    except OSError:
+        return rows
+    for d in kids:
+        try:
+            data = json.loads((d / "session.json").read_text(encoding="utf-8"))
+            steps = sum(1 for st in data.get("steps", []) if st.get("kind") not in ("note", "section") and not st.get("skip"))
+            created = str(data.get("created", "")).replace("T", " ")[:16]
+            rows.append((d, created or time.strftime("%Y-%m-%d %H:%M", time.localtime(d.stat().st_mtime)),
+                         data.get("title", d.name), steps))
+        except (OSError, ValueError):
+            continue
+    rows.sort(key=lambda r: r[1], reverse=True)
+    return rows[:limit]
+
+
+class SessionPicker(tk.Toplevel):
+    """'Open a recording': Telestep's own list of saved recordings (newest first).  `result` is a folder or None."""
+
+    def __init__(self, parent, base):
+        super().__init__(parent)
+        self.title("Telestep - Open a recording")
+        self.transient(parent)
+        self.result = None
+        self.base = Path(base)
+        frm = ttk.Frame(self, padding=10)
+        frm.grid(sticky="nsew")
+        frm.columnconfigure(0, weight=1)
+        frm.rowconfigure(1, weight=1)
+        ttk.Label(frm, text="Pick a recording to review, edit or export (newest first):").grid(sticky="w")
+        self.rows = list_sessions(self.base)
+        self.tree = ttk.Treeview(frm, columns=("when", "title", "steps"), show="headings", height=10, selectmode="browse")
+        for col, text, width in (("when", "Recorded", 120), ("title", "Title", 300), ("steps", "Steps", 50)):
+            self.tree.heading(col, text=text)
+            self.tree.column(col, width=width, anchor="e" if col == "steps" else "w", stretch=(col == "title"))
+        for i, (_d, when, title, n) in enumerate(self.rows):
+            self.tree.insert("", "end", iid=str(i), values=(when, title, n))
+        self.tree.grid(row=1, column=0, sticky="nsew", pady=(4, 4))
+        ttk.Label(frm, text=f"In: {self.base}" if self.rows else f"No recordings found yet in: {self.base}",
+                  foreground="gray").grid(row=2, sticky="w")
+        btns = ttk.Frame(frm)
+        btns.grid(row=3, sticky="e", pady=(8, 0))
+        ttk.Button(btns, text="Browse for another folder...", command=self.browse).grid(row=0, column=0, padx=(0, 12))
+        ttk.Button(btns, text="Cancel", command=self.destroy).grid(row=0, column=1, padx=(0, 6))
+        self.btn_open = ttk.Button(btns, text="Open", command=self.ok, state="normal" if self.rows else "disabled")
+        self.btn_open.grid(row=0, column=2)
+        self.tree.bind("<Double-Button-1>", lambda e: self.ok())
+        self.bind("<Return>", lambda e: self.ok())
+        self.bind("<Escape>", lambda e: self.destroy())
+        if self.rows:
+            self.tree.selection_set("0")
+            self.tree.focus("0")
+        self.update_idletasks()
+        self.geometry(f"+{parent.winfo_rootx()}+{parent.winfo_rooty() + parent.winfo_height() + 8}")
+        self.tree.focus_set()
+        self.grab_set()
+        self.wait_window(self)
+
+    def ok(self):
+        sel = self.tree.selection()
+        if sel:
+            self.result = self.rows[int(sel[0])][0]
+            self.destroy()
+
+    def browse(self):
+        d = filedialog.askdirectory(parent=self, title="Choose a recording folder", initialdir=str(self.base))
+        if d:
+            self.result = Path(d)
+            self.destroy()

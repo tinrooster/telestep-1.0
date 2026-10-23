@@ -74,13 +74,20 @@ Select a step, then **click and drag a box on the picture** around what to hide 
 **Hide this area**. Tick *Same area on every screenshot* to apply it to all of them. **Clear** cancels the box. Hiding
 permanently changes the saved screenshot(s), so it is not undone by closing the editor.
 
+## Toolbar icons: Review and Folder
+- **Review / edit / export (list icon):** shows Telestep's own list of saved recordings (date, title, steps), newest first.
+  Pick one and it opens in the editor, where you fix captions, hide private areas and export. *Browse for another
+  folder...* is there for recordings stored elsewhere. After you stop a recording the editor opens by itself.
+- **Recordings folder (folder icon):** opens File Explorer on the recordings folder, for grabbing the exported files
+  (Word, PDF, ...) or the screenshots. It doesn't open anything in Telestep.
+
 ## Right-click menus
 - **Step list (review editor):** edit or copy the caption, reset it to automatic wording, move up/down, exclude or include,
   delete, insert a section heading or note above/below, select all.
 - **Picture (review editor):** *Select the clicked control* outlines the control you clicked (then choose a style or press
   **Hide this area**); *Hide selected area as...* hides it straight away in the style you pick; *...on every screenshot*;
   switch Before/After; exclude or delete the step.
-- **Toolbar:** record/pause/stop, add a note, take a screenshot, review a saved session, open the output folder, settings,
+- **Toolbar:** record/pause/stop, add a note, take a screenshot, open a saved recording, show the recordings folder, settings,
   Help, About, hide to tray, Quit.
 
 ## Support mode

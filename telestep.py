@@ -210,8 +210,8 @@ class App:
         self._set_icon(self.btn_gear, "gear")
         w.Tip(self.btn_gear, "Settings")
         self.btn_gear.pack(side="right", padx=1)
-        self.btn_folder = self._icon_btn(bar, "folder", "Open output folder", self.open_folder, side="right")
-        self.btn_review = self._icon_btn(bar, "review", "Review / edit / export a session", self.open_review,
+        self.btn_folder = self._icon_btn(bar, "folder", "Show the recordings folder in File Explorer", self.open_folder, side="right")
+        self.btn_review = self._icon_btn(bar, "review", "Review, edit and export a recording (pick from a list)", self.open_review,
                                          side="right")
         self.btn_help = self._icon_btn(bar, "help", "Help and About (F1)", self.open_help, side="right")
         self.lbl_toast = ttk.Label(main, textvariable=self.var_toast, foreground="#b45309",
@@ -840,7 +840,7 @@ class App:
 
     def open_review(self, session=None):
         if not isinstance(session, Session):
-            d = filedialog.askdirectory(parent=self.root, title="Choose a session folder", initialdir=str(self.base))
+            d = w.SessionPicker(self.root, self.base).result  # Telestep's own list, newest first
             if not d:
                 return
             try:
@@ -873,10 +873,10 @@ class App:
         else:
             m.add_command(label="Start recording", command=self.start)
             m.add_separator()
-            m.add_command(label="Review a saved session...", command=self.open_review)
+            m.add_command(label="Open a saved recording...", command=self.open_review)
             if self.last_session:
                 m.add_command(label="Review the last recording", command=lambda: self.open_review(self.last_session))
-        m.add_command(label="Open the output folder", command=self.open_folder)
+        m.add_command(label="Show recordings folder in File Explorer", command=self.open_folder)
         m.add_separator()
         m.add_command(label="Hide settings" if self.var_cfg.get() else "Show settings",
                       command=lambda: (self.var_cfg.set(not self.var_cfg.get()), self.toggle_config()))
