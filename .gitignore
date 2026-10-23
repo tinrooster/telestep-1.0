@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.spec
+.venv/
+venv/
+# recordings made while testing
+/Telestep/
+*_steps/
+session.json
+save_errors.log
+.idea/
+.vscode/

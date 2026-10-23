@@ -1,0 +1,12 @@
+# required
+pynput
+mss
+pillow
+uiautomation
+python-docx
+reportlab
+# optional
+pytesseract      # OCR redaction (also install the Tesseract program, see README)
+pystray          # tray icon
+# only for building the .exe
+# pyinstaller
