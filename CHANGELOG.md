@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- Support mode (`--support`, `build_support_exe.bat`): one-button recorder that writes a single ZIP with a one-sheet report for IT.
+- Tray: logo icon with recording/paused badge, close-to-tray option.
+
 ## 1.0 - 2026-10-22
 First release.
 - Step recording with annotated screenshots, window/app names and UI Automation control names.

@@ -20,6 +20,7 @@ Nothing leaves your computer: no cloud service, no account, no upload.
   - Optional OCR redaction of IP addresses, MAC addresses, keys and e-mail addresses.
 - **Review editor:** delete, exclude, reorder, edit captions, add section headings and Note / Warning / Tip callouts, switch between friendly and technical wording, and mask anything you missed after the fact.
 - **Export:** Markdown, DOCX, HTML (single file), PDF and text, with header, footer, logo and an environment appendix.
+- **Support mode:** a one-button recorder for end users that produces a single ZIP (one-sheet HTML report, steps, system and network details) to send to IT.
 - **Toolbar:** icon mini-bar with on-screen overlays showing what is captured and masked, saved presets, hotkeys, optional tray icon, and a built-in Help / About window (F1).
 - **Safe by design:** the session is autosaved after every step, so a crash loses nothing.
 
@@ -90,6 +91,42 @@ python telestep_recorder.py --export <session folder> --format md,docx,html,pdf
 `--export` also imports a version-1 recording (a folder with `steps.md` and `images/`). Run
 `python telestep_recorder.py --help` for every option.
 
+## Support mode (one-click recording for IT)
+
+A stripped-down mode for end users: type what is wrong, click **Record**, repeat the problem, click **Stop**.
+Telestep writes one ZIP to the Desktop and shows its name; the user attaches it to an email or ticket. Nothing is uploaded.
+
+```
+Telestep.exe --support            (or:  python telestep.py --support)
+build_support_exe.bat             builds dist\Telestep-Support.exe, which always starts in support mode
+```
+
+The ZIP contains:
+
+| File | Content |
+|---|---|
+| `Telestep_report.html` | one-sheet report: the user's description, error boxes seen, system details, every step with a screenshot (opens in any browser; prints to PDF) |
+| `steps.txt` | the steps as plain text |
+| `environment.txt`, `network.txt` | computer, OS, displays; `ipconfig /all` |
+| `session\` | optional: the full session, to open in Telestep's review editor |
+
+Defaults suit remote support: screenshot under each click, typed text counted but never recorded, error and message
+boxes captured with their text, screenshots shrunk until the ZIP is under 10 MB, temporary files deleted when the
+window closes. To change them, put `telestep_support.json` (see `telestep_support.example.json`) in the same folder as
+the exe: help-desk contact shown to the user, size limit, output folder, capture mode, `include_session`,
+`collect_network`, and so on. Support mode never touches the normal Telestep settings.
+
+The window asks for the user's name and a phone number or email (pre-filled from Windows when it knows them) and puts
+them at the top of the report. Set `"require_contact": true` to insist on both, or `"ask_contact": false` to skip them.
+
+### Sending it to a user
+
+1. Run `build_support_exe.bat`.
+2. Edit `dist\telestep_support.json` (set `contact` to your help-desk details).
+3. Send **both** files, `Telestep-Support.exe` and `telestep_support.json`, in one folder (a zip works well). The exe
+   alone also runs, with the defaults and no contact line.
+4. The user keeps them together, double-clicks the exe and follows the window; they send you the ZIP it creates.
+
 ## Build a single .exe
 
 ```
@@ -113,6 +150,7 @@ on each PC that needs OCR redaction.
 | `telestep_review.py` | review and edit window |
 | `telestep_widgets.py` | icons, overlays, dialogs |
 | `telestep_settings.py` | saved settings and presets |
+| `telestep_support.py` | Support mode (one-click recorder that produces a ZIP for IT) |
 | `telestep_help.py` | Help, About and License window |
 | `HELP.md` | end-user guide shown in the Help window (bundled in the exe) |
 | `assets\` | logo and `telestep.ico` |

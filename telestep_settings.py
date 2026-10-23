@@ -20,7 +20,7 @@ DEFAULTS = {
     "review_after_stop": True, "wording": "friendly",
     "template": {"header": "", "footer": "", "logo": "", "author": "", "environment": True},
     # app
-    "hotkeys": dict(DEFAULT_HOTKEYS), "flash": True, "sound": False, "tray": False, "hide_in_tray": False,
+    "hotkeys": dict(DEFAULT_HOTKEYS), "flash": True, "sound": False, "tray": False, "hide_in_tray": False, "close_to_tray": True,
     "hide_from_capture": True, "overlays": True, "toolbar_pos": None, "presets": {},
 }
 NESTED = ("ocr", "formats", "template", "hotkeys")

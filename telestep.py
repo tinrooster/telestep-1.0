@@ -49,16 +49,31 @@ class Tray:
     def __init__(self, app):
         self.app, self.icon, self.ok = app, None, False
         try:
-            import importlib.util
-            self.ok = importlib.util.find_spec("pystray") is not None
+            import pystray  # noqa: F401  (a real import, so it also works inside the PyInstaller exe)
+            self.ok = True
         except Exception:
             pass
 
     @staticmethod
-    def _image(color):
+    def _image(color=None):
+        """The Telestep logo; `color` adds a state badge (red = recording, amber = paused) in the corner."""
         from PIL import Image, ImageDraw
-        im = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-        ImageDraw.Draw(im).ellipse([8, 8, 56, 56], fill=color)
+        im = None
+        try:
+            import telestep_help
+            p = telestep_help.logo_path(small=True)
+            if p:
+                im = Image.open(p).convert("RGBA").resize((64, 64))
+        except Exception:
+            im = None
+        if im is None:  # logo file missing: fall back to a plain dot
+            im = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+            ImageDraw.Draw(im).ellipse([8, 8, 56, 56], fill=color or "#78909c")
+            return im
+        if color:
+            d = ImageDraw.Draw(im)
+            d.ellipse([30, 30, 64, 64], fill="white")
+            d.ellipse([35, 35, 59, 59], fill=color)
         return im
 
     def start(self):
@@ -72,7 +87,7 @@ class Tray:
             item("Pause / resume", lambda: put("pause")), item("Stop and save", lambda: put("stop")),
             item("Add note", lambda: put("note")), item("Screenshot", lambda: put("shot")),
             item("Quit", lambda: put("quit")))
-        self.icon = pystray.Icon("Telestep", self._image("#78909c"), "Telestep", menu)
+        self.icon = pystray.Icon("Telestep", self._image(), "Telestep", menu)
         try:
             self.icon.run_detached()
         except Exception:
@@ -81,7 +96,7 @@ class Tray:
     def set_state(self, state):
         if self.icon:
             try:
-                self.icon.icon = self._image({"rec": "#e53935", "paused": "#f59e0b"}.get(state, "#78909c"))
+                self.icon.icon = self._image({"rec": "#e53935", "paused": "#f59e0b"}.get(state))
             except Exception:
                 pass
 
@@ -162,6 +177,7 @@ class App:
         self.var_env = tk.BooleanVar(value=t["environment"])
         self.var_flash, self.var_sound = tk.BooleanVar(value=d["flash"]), tk.BooleanVar(value=d["sound"])
         self.var_tray, self.var_hidetray = tk.BooleanVar(value=d["tray"]), tk.BooleanVar(value=d["hide_in_tray"])
+        self.var_closetray = tk.BooleanVar(value=d["close_to_tray"])
         self.var_overlay = tk.BooleanVar(value=d["overlays"])
         self.var_hide = tk.BooleanVar(value=d["hide_from_capture"])
         self.var_hk = {k: tk.StringVar(value=d["hotkeys"].get(k, cfg.DEFAULT_HOTKEYS[k])) for k in cfg.DEFAULT_HOTKEYS}
@@ -365,13 +381,17 @@ class App:
             ttk.Checkbutton(t, text=txt, variable=var, command=cmd).grid(row=i, column=0, columnspan=2, sticky="w")
         tr = ttk.Frame(t)
         self.chk_tray = ttk.Checkbutton(tr, text="Tray icon", variable=self.var_tray, command=self.tray_toggled)
-        self.chk_tray.pack(side="left")
+        self.chk_tray.grid(row=0, column=0, sticky="w")
         self.chk_hidetray = ttk.Checkbutton(tr, text="hide toolbar while recording", variable=self.var_hidetray)
-        self.chk_hidetray.pack(side="left", padx=(10, 0))
+        self.chk_hidetray.grid(row=0, column=1, sticky="w", padx=(10, 0))
+        self.chk_closetray = ttk.Checkbutton(
+            tr, text="close button sends it to the tray (Quit is in the tray menu)", variable=self.var_closetray)
+        self.chk_closetray.grid(row=1, column=0, columnspan=3, sticky="w")
         if not self.tray.ok:
             self.chk_tray.state(["disabled"])
             self.chk_hidetray.state(["disabled"])
-            ttk.Label(tr, text="(pip install pystray)", foreground="gray").pack(side="left", padx=6)
+            self.chk_closetray.state(["disabled"])
+            ttk.Label(tr, text="(pip install pystray)", foreground="gray").grid(row=0, column=2, sticky="w", padx=6)
         tr.grid(row=4, column=0, columnspan=2, sticky="w")
         hk = ttk.LabelFrame(t, text="Hotkeys (e.g. f9, ctrl+shift+f8)", padding=6)
         hk.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 0))
@@ -452,6 +472,7 @@ class App:
                          "environment": self.var_env.get()},
             "hotkeys": {k: v.get().strip() for k, v in self.var_hk.items()}, "flash": self.var_flash.get(),
             "sound": self.var_sound.get(), "tray": self.var_tray.get(), "hide_in_tray": self.var_hidetray.get(),
+            "close_to_tray": self.var_closetray.get(),
             "hide_from_capture": self.var_hide.get(), "overlays": self.var_overlay.get(),
             "toolbar_pos": self.data.get("toolbar_pos"), "presets": self.data.get("presets", {}),
         })
@@ -860,6 +881,9 @@ class App:
     def tray_toggled(self):
         if self.var_tray.get():
             self.tray.start()
+            if not self.tray.icon:
+                self.toast("Could not create the tray icon. Check the hidden-icons (^) area of the taskbar, "
+                           "or that pystray is installed.", 8)
         else:
             self.tray.stop()
 
@@ -896,7 +920,7 @@ class App:
         while not self.requests.empty():
             req = self.requests.get_nowait()
             if req == "quit":
-                self.on_close()
+                self.on_close(force=True)
                 return
             if req == "show":
                 self.root.deiconify()
@@ -937,7 +961,10 @@ class App:
         self.update_overlays()
         self._poll_job = self.root.after(120, self.poll)
 
-    def on_close(self):
+    def on_close(self, force=False):
+        if not force and self.var_tray.get() and self.var_closetray.get() and self.tray.icon:
+            self.root.withdraw()  # keep running in the tray; "Show toolbar" / double-click the icon brings it back
+            return
         if self.rec:
             if not self.ask("askyesno", "Recording is in progress. Stop and save before closing?"):
                 return
@@ -952,7 +979,21 @@ class App:
         self.root.destroy()
 
 
+def support_requested(argv=None, exe=None):
+    """Support mode (one-button recorder that produces a ZIP for IT): --support, or an exe named *Support*.exe."""
+    import sys
+    argv = sys.argv[1:] if argv is None else argv
+    if "--support" in argv:
+        return True
+    name = exe if exe is not None else (sys.executable if getattr(sys, "frozen", False) else sys.argv[0])
+    return "support" in Path(name).stem.lower()
+
+
 def main():
+    if support_requested():
+        import telestep_support
+        telestep_support.main()
+        return
     root = tk.Tk()
     App(root, os.environ.get("TELESTEP_SETTINGS"))
     root.mainloop()

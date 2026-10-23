@@ -69,8 +69,14 @@ python telestep_recorder.py --title "Fix Teams audio" --capture window --hide-wi
 ```
 `python telestep_recorder.py --help` lists everything.
 
+## Support mode
+Started with `Telestep.exe --support` (or an exe named *Support*): type what is wrong, click **Record**, repeat the
+problem, click **Stop and package**. Telestep saves one ZIP on the Desktop to send to IT. Pause (F9) before showing
+passwords or private data. Use **Note** to point out where something goes wrong.
+
 ## Tray icon, .exe
-- Tray icon (Options): `pip install pystray`.
+- Tray icon (Options): `pip install pystray`. With the tray icon on, the close button hides Telestep to the tray (untick "close button sends it to the tray" to make it quit instead). Double-click the icon or choose **Show toolbar** to bring it back; **Quit** in the tray menu exits.
+- The icon may sit under the **^** hidden-icons arrow in the taskbar; drag it out to keep it visible. It shows the Telestep logo, with a red badge while recording and an amber badge while paused.
 - Single .exe: `pip install pyinstaller` then run `build_exe.bat`.
 
 ## Limits worth knowing
