@@ -397,20 +397,28 @@ class App:
             self.chk_closetray.state(["disabled"])
             ttk.Label(tr, text="(pip install pystray)", foreground="gray").grid(row=0, column=2, sticky="w", padx=6)
         tr.grid(row=4, column=0, columnspan=2, sticky="w")
-        hk = ttk.LabelFrame(t, text="Hotkeys (e.g. f9, ctrl+shift+f8)", padding=6)
+        hk = ttk.LabelFrame(t, text="Hotkeys - click a box, then press the keys (Esc cancels, Backspace resets)",
+                            padding=6)
         hk.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         names = {"pause": "Pause / resume", "stop": "Stop and save", "note": "Add note", "shot": "Screenshot",
                  "undo": "Delete last step"}
         self.hk_entries = []
         for i, k in enumerate(cfg.DEFAULT_HOTKEYS):
             ttk.Label(hk, text=names[k]).grid(row=i // 2, column=(i % 2) * 2, sticky="w", pady=1)
-            e = ttk.Entry(hk, textvariable=self.var_hk[k], width=14)
+            e = w.HotkeyEntry(hk, self.var_hk[k], cfg.DEFAULT_HOTKEYS[k], width=16,
+                              validate=lambda spec, k=k: self._hotkey_conflict(k, spec, names))
             e.grid(row=i // 2, column=(i % 2) * 2 + 1, padx=(4, 12), pady=1)
             self.hk_entries.append(e)
         self.var_admin = tk.StringVar(value="Running as administrator: " + ("yes" if core.is_admin() else
                                      "no (clicks inside admin windows can't be recorded)"))
         ttk.Label(t, textvariable=self.var_admin, foreground="gray", wraplength=int(340 * self.scale),
                   justify="left").grid(row=6, column=0, columnspan=2, sticky="w", pady=(6, 0))
+
+    def _hotkey_conflict(self, key, spec, names):
+        for other, var in self.var_hk.items():
+            if other != key and var.get().strip().lower() == spec:
+                return f'Already used for "{names[other]}"'
+        return None
 
     def _tab_changed(self):
         if not self._ocr_checked and self.nb.select() == str(self.tab_privacy):

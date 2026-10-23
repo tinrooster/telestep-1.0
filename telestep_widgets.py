@@ -4,6 +4,7 @@ screen overlays (capture frame / masks / taskbar), the area picker, note and win
 """
 import ctypes
 import json
+import sys
 import time
 import tkinter as tk
 from pathlib import Path
@@ -546,3 +547,113 @@ class SessionPicker(tk.Toplevel):
         if d:
             self.result = Path(d)
             self.destroy()
+
+
+# ---------------------------------------------------------------------------
+# click-to-set hotkey box
+# ---------------------------------------------------------------------------
+_ALT_MASK = 0x20000 if sys.platform == "win32" else 0x8  # Tk: Alt is 0x20000 on Windows (0x8 there is NumLock)
+_KEYSYM_NAMES = {"space": "space", "Return": "enter", "Tab": "tab", "Delete": "delete", "Insert": "insert",
+                 "Home": "home", "End": "end", "Prior": "pageup", "Next": "pagedown", "Pause": "pause",
+                 "Print": "printscreen"}
+_MODIFIER_KEYSYMS = {"Control_L", "Control_R", "Shift_L", "Shift_R", "Alt_L", "Alt_R", "Meta_L", "Meta_R",
+                     "Super_L", "Super_R", "Caps_Lock", "Num_Lock", "ISO_Level3_Shift"}
+_BARE_OK = {"pause", "printscreen"}  # keys that may be a hotkey without Ctrl/Alt/Shift (plus F1-F24)
+
+
+def hotkey_from_event(keysym, state):
+    """Tk key event -> ('spec', None) like ('ctrl+shift+f7', None), or (None, 'reason it can't be used'),
+    or (None, '') for a lone modifier press (keep waiting)."""
+    if keysym in _MODIFIER_KEYSYMS:
+        return None, ""
+    mods = [n for n, bit in (("ctrl", 0x4), ("alt", _ALT_MASK), ("shift", 0x1)) if state & bit]
+    if len(keysym) >= 2 and keysym[0] in "Ff" and keysym[1:].isdigit() and 1 <= int(keysym[1:]) <= 24:
+        key = keysym.lower()
+    elif len(keysym) == 1 and keysym.isalnum() and keysym.isascii():
+        key = keysym.lower()
+    elif keysym in _KEYSYM_NAMES:
+        key = _KEYSYM_NAMES[keysym]
+    else:
+        return None, "That key can't be used as a hotkey"
+    bare_ok = key in _BARE_OK or (key[0] == "f" and key[1:].isdigit())
+    if not mods and not bare_ok:
+        return None, "Add Ctrl, Alt or Shift"
+    return "+".join(mods + [key]), None
+
+
+def pretty_hotkey(spec):
+    names = {"pageup": "PageUp", "pagedown": "PageDown", "printscreen": "PrintScreen"}
+    out = []
+    for p in (spec or "").split("+"):
+        out.append(names.get(p) or (p.upper() if len(p) <= 3 and p[:1] == "f" and p[1:].isdigit() else p.title()))
+    return "+".join(out)
+
+
+class HotkeyEntry(ttk.Entry):
+    """Read-only box that sets a hotkey by pressing it: click, then press the keys.
+    Esc cancels, Backspace resets to the default.  `var` holds the spec ('ctrl+shift+f7').
+    `validate(spec)` may return an error message to refuse a choice (e.g. already used)."""
+
+    def __init__(self, parent, var, default, validate=None, **kw):
+        self.var, self.default, self.validate = var, default, validate
+        self.display = tk.StringVar()
+        super().__init__(parent, textvariable=self.display, state="readonly", cursor="hand2", justify="center", **kw)
+        self.capturing = False
+        self._note = ""
+        self.var.trace_add("write", lambda *_: self._refresh())
+        self.bind("<Button-1>", self._start)
+        self.bind("<Return>", self._start)
+        self.bind("<space>", self._start)
+        self.bind("<KeyPress>", self._key)
+        self.bind("<FocusOut>", lambda e: self._stop())
+        self._refresh()
+
+    def _disabled(self):
+        return self.instate(["disabled"])
+
+    def _refresh(self):
+        if self.capturing:
+            self.display.set(self._note or "Press the keys...")
+        else:
+            self.display.set(self._note or pretty_hotkey(self.var.get()))
+
+    def _start(self, _e=None):
+        if self._disabled():
+            return "break"
+        self.focus_set()
+        self.capturing, self._note = True, ""
+        self._refresh()
+        return "break"
+
+    def _stop(self):
+        self.capturing, self._note = False, ""
+        self._refresh()
+
+    def _flash(self, text):
+        self._note = text
+        self._refresh()
+        self.after(1500, lambda: (setattr(self, "_note", ""), self._refresh()))
+
+    def _key(self, e):
+        if not self.capturing:
+            return None
+        if e.keysym == "Escape":
+            self._stop()
+            return "break"
+        if e.keysym == "BackSpace":
+            self.var.set(self.default)
+            self._stop()
+            return "break"
+        spec, why = hotkey_from_event(e.keysym, e.state)
+        if spec is None:
+            if why:
+                self._flash(why)
+            return "break"
+        err = self.validate(spec) if self.validate else None
+        if err:
+            self._flash(err)
+            return "break"
+        self.var.set(spec)
+        self._stop()
+        return "break"
+

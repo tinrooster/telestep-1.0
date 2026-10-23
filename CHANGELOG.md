@@ -2,6 +2,7 @@
 
 ## Unreleased
 - Support mode (`--support`, `build_support_exe.bat`): one-button recorder that writes a single ZIP with a one-sheet report for IT.
+- Hotkeys are set by clicking the box and pressing the keys (no typing of names).
 - Review button opens a list of saved recordings (newest first) instead of a bare folder dialog; clearer tooltips.
 - Stop icon is dark red (was dark grey).
 - Right-click menus: step list, screenshot (including 'select the clicked control') and toolbar.

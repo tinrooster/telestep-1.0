@@ -81,6 +81,10 @@ permanently changes the saved screenshot(s), so it is not undone by closing the 
 - **Recordings folder (folder icon):** opens File Explorer on the recordings folder, for grabbing the exported files
   (Word, PDF, ...) or the screenshots. It doesn't open anything in Telestep.
 
+## Hotkeys
+In Settings, click a hotkey box and press the keys you want (for example Ctrl+Shift+F7). Esc cancels, Backspace resets
+to the default. A key can't be used twice, and plain letters need Ctrl, Alt or Shift.
+
 ## Right-click menus
 - **Step list (review editor):** edit or copy the caption, reset it to automatic wording, move up/down, exclude or include,
   delete, insert a section heading or note above/below, select all.
