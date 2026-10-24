@@ -390,7 +390,7 @@ def pick_area(root, screens):
 class NoteDialog(tk.Toplevel):
     """Resizable multi-line note entry. Ctrl+Enter adds, Esc cancels. `result` is the text or None."""
 
-    def __init__(self, parent):
+    def __init__(self, parent, comment=False):
         super().__init__(parent)
         self.title(NOTE_TITLE)
         self.attributes("-topmost", True)
@@ -403,9 +403,10 @@ class NoteDialog(tk.Toplevel):
         frm.grid(sticky="nsew")
         frm.columnconfigure(0, weight=1)
         frm.rowconfigure(1, weight=1)
-        ttk.Label(frm, text="Note  (Ctrl+Enter to add, Esc to cancel)").grid(
+        ttk.Label(frm, text=("Comment for your next step  (Ctrl+Enter to add, Esc to cancel)" if comment
+                             else "Note  (Ctrl+Enter to add, Esc to cancel)")).grid(
             row=0, column=0, columnspan=2, sticky="w")
-        self.txt = tk.Text(frm, width=64, height=12, wrap="word", font=("Segoe UI", 10), undo=True)
+        self.txt = tk.Text(frm, width=64, height=(4 if comment else 12), wrap="word", font=("Segoe UI", 10), undo=True)
         sb = ttk.Scrollbar(frm, command=self.txt.yview)
         self.txt.config(yscrollcommand=sb.set)
         self.txt.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
@@ -415,7 +416,8 @@ class NoteDialog(tk.Toplevel):
         btns.columnconfigure(3, weight=1)
         self._lvl = tk.StringVar(value="note")
         for i, (val, lab) in enumerate((("note", "Note"), ("warning", "Warning"), ("tip", "Tip"))):
-            ttk.Radiobutton(btns, text=lab, value=val, variable=self._lvl).grid(row=0, column=i, padx=(0, 8))
+            if not comment:
+                ttk.Radiobutton(btns, text=lab, value=val, variable=self._lvl).grid(row=0, column=i, padx=(0, 8))
         ttk.Button(btns, text="Cancel", command=self.destroy).grid(row=0, column=4, padx=(0, 6))
         ttk.Button(btns, text="Add", command=self.ok).grid(row=0, column=5)
         self.bind("<Control-Return>", lambda e: self.ok())

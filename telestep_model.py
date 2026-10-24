@@ -48,6 +48,8 @@ class Step:
     el: dict = None  # {"name","kind","inherited","button","x","y"} clicked UI element
     skip: bool = False  # excluded from reports but kept in the session
     auto: bool = False  # made by Telestep itself (e.g. admin-window warning), not by the person
+    comment: str = ""  # extra line shown under the caption (typed at record time or in the review editor)
+    marks: list = None  # hand-made annotations drawn on the picture: [{"t": box|arrow|text|num, "p": [...], ...}]
 
     def caption(self, wording="friendly"):
         if self.custom:
@@ -136,6 +138,79 @@ class Session:
                 self.steps[i], self.steps[j] = self.steps[j], self.steps[i]
                 return True
         return False
+
+    def move_block(self, steps, delta):
+        """Move several steps together by `delta` places (keeping their order).  `delta` of +-len(steps list) or more
+        goes to the very top / bottom.  Returns True if anything moved."""
+        with self.lock:
+            block = [s for s in self.steps if s in steps]
+            if not block:
+                return False
+            rest = [s for s in self.steps if s not in steps]
+            first = self.steps.index(block[0])
+            before = len([s for s in self.steps[:first] if s not in steps])  # items of `rest` ahead of the block
+            at = max(0, min(len(rest), before + (delta if abs(delta) < 10_000 else (-before if delta < 0 else len(rest)))))
+            new = rest[:at] + block + rest[at:]
+            if new == self.steps:
+                return False
+            self.steps[:] = new
+            return True
+
+    def duplicate(self, step):
+        """A copy right after `step`, with its own copies of the screenshot files.  Returns the copy."""
+        import copy
+        import shutil
+        with self.lock:
+            twin = copy.deepcopy(step)
+            twin.id = new_id()
+            twin.image = twin.image_after = ""
+            for attr in ("raw", "raw_after"):
+                rel = getattr(step, attr)
+                if rel and (self.dir / rel).exists():
+                    new_rel = str(Path(rel).with_name(f"{twin.id}{'_after' if attr == 'raw_after' else ''}"
+                                                       f"{Path(rel).suffix}")).replace("\\", "/")
+                    try:
+                        shutil.copyfile(self.dir / rel, self.dir / new_rel)
+                        setattr(twin, attr, new_rel)
+                    except OSError:
+                        setattr(twin, attr, rel)  # fall back to sharing the file (delete() then keeps it, see below)
+            self.steps.insert(self.steps.index(step) + 1, twin)
+        return twin
+
+    def merge(self, steps):
+        """Fold several steps into the first one (in list order): captions are joined ("Click A, then click B"), the
+        first picture is kept and the LAST step's picture becomes its 'after' picture.  Returns the merged step."""
+        with self.lock:
+            group = [s for s in self.steps if s in steps and s.numbered]
+            if len(group) < 2:
+                return None
+            head, rest = group[0], group[1:]
+
+            def low(t):  # "Click ..." -> "click ..." but leave "OK", "URL" and names alone
+                return t[:1].lower() + t[1:] if len(t) > 1 and t[0].isupper() and t[1].islower() else t
+
+            for attr in ("friendly", "tech"):
+                parts = [(s.custom or getattr(s, attr) or s.friendly or s.tech or "").strip().rstrip(".") for s in group]
+                setattr(head, attr, ", then ".join([parts[0]] + [low(p) for p in parts[1:] if p]))
+            head.custom = ""
+            last = rest[-1]
+            if last.raw and not head.raw_after:
+                head.raw_after = last.raw
+                keep_file = last.raw
+            else:
+                keep_file = ""
+            head.comment = " ".join(x for x in [head.comment] + [s.comment for s in rest] if x).strip()
+            head.dialog_text = "\n".join(x for x in [head.dialog_text] + [s.dialog_text for s in rest] if x)
+            for s in rest:
+                if s in self.steps:
+                    self.steps.remove(s)
+                for rel in (s.raw, s.raw_after, s.image, s.image_after):
+                    if rel and rel != keep_file and rel not in (head.raw, head.raw_after):
+                        try:
+                            (self.dir / rel).unlink()
+                        except OSError:
+                            pass
+            return head
 
     # ---- persistence ----
     def to_dict(self):

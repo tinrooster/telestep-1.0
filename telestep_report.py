@@ -17,7 +17,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from telestep_core import annotate, clean_text, focus_blur
+from telestep_core import annotate, clean_text, draw_marks, focus_blur
 from telestep_model import environment_text
 
 CALLOUT = {  # level -> (label, fill colour, accent colour)
@@ -28,7 +28,10 @@ CALLOUT = {  # level -> (label, fill colour, accent colour)
 STYLES = {"report": "Technical report (all details)",
           "docs": "Documentation (clean, for end users)",
           "onesheet": "Documentation - one sheet (condensed)"}
-FORMATS = {"md": "Markdown", "docx": "Word (DOCX)", "html": "HTML (single file)", "pdf": "PDF", "txt": "Plain text"}
+FORMATS = {"md": "Markdown", "docx": "Word (DOCX)", "html": "HTML (single file)", "pdf": "PDF", "txt": "Plain text",
+           "runbook": "Runbook checklist", "zip": "ZIP bundle"}
+OUTPUT_FILES = {"md": "steps.md", "docx": "steps.docx", "html": "steps.html", "pdf": "steps.pdf", "txt": "steps.txt",
+                "runbook": "runbook.md", "zip": "steps_bundle.zip"}
 _GENERATED = re.compile(r"^step_\d{3}_[0-9a-f]{8}(_after)?\.jpg$")
 
 
@@ -47,6 +50,7 @@ class Template:
     image_width_in: float = 6.0
     style: str = "report"  # report | docs | onesheet  (see STYLES)
     focus: str = "off"  # off | window | control: blur everything but the clicked window / control
+    verified: str = ""  # runbook: "last verified" date (blank = the day it is exported)
 
     @property
     def docs(self):  # end-user documentation: no timestamps, window/app details, dialog dumps or environment
@@ -86,7 +90,8 @@ def render_step_image(session, step, number, focus="off"):
     if step.raw and (session.dir / step.raw).exists():
         img = Image.open(session.dir / step.raw).convert("RGB")
         img = focus_blur(img, step.marker, focus)
-        return annotate(img, step.marker, number if step.numbered else None)
+        img = annotate(img, step.marker, number if step.numbered else None)
+        return draw_marks(img, step.marks)
     if step.image and (session.dir / step.image).exists():  # imported v1 session: already annotated
         return Image.open(session.dir / step.image).convert("RGB")
     return None
@@ -177,7 +182,8 @@ def build_blocks(session, tpl):
                 if s.image_after:
                     imgs.append(("After", s.image_after))
                 out.append({"type": "step", "n": nums.get(s.id, 0), "text": cap, "meta": " | ".join(meta),
-                            "images": imgs, "dialog": "" if tpl.docs else clean_text(s.dialog_text)})
+                            "images": imgs, "dialog": "" if tpl.docs else clean_text(s.dialog_text),
+                            "comment": clean_text(getattr(s, "comment", "") or "")})
     return out
 
 
@@ -245,11 +251,15 @@ def write_markdown(session, tpl):
             lines.append("")
         elif tpl.docs:
             lines += [f"**{b['n']}. {b['text'].replace('`', '')}**", ""]
+            if b["comment"]:
+                lines += [f"_{b['comment']}_", ""]
             for label, rel in b["images"]:
                 lines += [f"![Step {b['n']}]({rel})", ""]
         else:
             lines.append(f"{'###' if has_sections else '##'} Step {b['n']}")
             lines.append(f"**{b['text'].replace('`', '')}**  ")
+            if b["comment"]:
+                lines.append(f"{b['comment']}  ")
             if b["meta"]:
                 lines.append(f"_{b['meta']}_")
             lines.append("")
@@ -292,6 +302,8 @@ def steps_text(session, tpl):
             lines += [f"   {ln}" for ln in body[1:]]
         else:
             lines.append(f"{b['n']}. {b['text']}")
+            if b["comment"]:
+                lines.append(f"   {b['comment']}")
             if b["dialog"]:
                 lines += [f"   Dialog text: {ln}" for ln in _md_escape_lines(b["dialog"])]
     if tpl.footer:
@@ -441,12 +453,16 @@ def write_docx(session, tpl):
             n.bold = True
             n.font.color.rgb = RGBColor.from_string((tpl.accent or "#1e88e5").lstrip("#"))
             p.add_run(b["text"].replace("`", "")).bold = True
+            if b["comment"]:
+                doc.add_paragraph().add_run(b["comment"]).italic = True
             for _label, rel in b["images"]:
                 doc.add_picture(str(session.dir / rel), width=Inches(tpl.image_width_in))
         else:
             doc.add_heading(f"Step {b['n']}", level=2)
             run = doc.add_paragraph().add_run(b["text"].replace("`", ""))
             run.bold = True
+            if b["comment"]:
+                doc.add_paragraph().add_run(b["comment"]).italic = True
             if b["meta"]:
                 m = doc.add_paragraph().add_run(b["meta"])
                 m.italic = True
@@ -502,6 +518,7 @@ def write_html(session, tpl):
     .step .cap {{ font-weight: 600; font-size: 17px; margin: 2px 0; }}
     .step .cap .num {{ color: var(--acc); margin-right: 6px; }}
     .meta {{ color: #778; font-size: 12px; }}
+    .comment {{ color: #445; font-style: italic; margin: 2px 0 4px; }}
     figure {{ margin: 8px 0 0; }} figure img {{ max-width: 100%; border: 1px solid #ccd; border-radius: 4px; }}
     figcaption {{ font-size: 12px; color: #778; margin-bottom: 2px; }}
     .callout {{ border-left: 4px solid; padding: 8px 12px; margin: 16px 0; border-radius: 3px; }}
@@ -538,11 +555,15 @@ def write_html(session, tpl):
                        f"<b style='color:#{accent}'>{label}:</b>{_h(b['text'].strip())}</div>")
         elif tpl.docs:
             out.append(f"<section class='step'><div class='cap'><span class='num'>{b['n']}.</span>{_h(b['text'])}</div>")
+            if b["comment"] and not tpl.onesheet:
+                out.append(f"<div class='comment'>{_h(b['comment'])}</div>")
             for label, rel in (b["images"][:1] if tpl.onesheet else b["images"]):
                 out.append(f"<figure><img alt='Step {b['n']}' src='{_data_uri(session.dir / rel)}'></figure>")
             out.append("</section>")
         else:
             out.append(f"<section class='step'><h3>Step {b['n']}</h3><div class='cap'>{_h(b['text'])}</div>")
+            if b["comment"]:
+                out.append(f"<div class='comment'>{_h(b['comment'])}</div>")
             if b["meta"]:
                 out.append(f"<div class='meta'>{_h(b['meta'])}</div>")
             if b["dialog"]:
@@ -616,6 +637,7 @@ def write_pdf(session, tpl):
     st_step = ParagraphStyle("st", parent=base, fontName=bold, fontSize=8.5, textColor=accent, spaceBefore=12)
     st_cap = ParagraphStyle("c", parent=base, fontName=bold, fontSize=12, leading=15)
     st_meta = ParagraphStyle("m", parent=base, fontSize=8, textColor=colors.HexColor("#778899"))
+    st_comment = ParagraphStyle("cm", parent=base, fontSize=10, textColor=colors.HexColor("#445566"))
     st_lbl = ParagraphStyle("l", parent=base, fontSize=8, textColor=colors.HexColor("#778899"), spaceBefore=4)
 
     page_w, page_h = A4
@@ -691,11 +713,15 @@ def write_pdf(session, tpl):
             elif tpl.docs:
                 part = [Spacer(1, 8), Paragraph(f"<font color='#{(tpl.accent or '#1e88e5').lstrip('#')}'>{b['n']}.</font> "
                                                 f"{T(b['text'].replace('`', ''))}", st_cap)]
+                if b["comment"]:
+                    part.append(Paragraph(f"<i>{T(b['comment'])}</i>", st_comment))
                 for _label, rel in b["images"]:
                     part += [Spacer(1, 3), picture(rel)]
                 story.append(KeepTogether(part))
             else:
                 part = [Paragraph(f"STEP {b['n']}", st_step), Paragraph(T(b["text"]), st_cap)]
+                if b["comment"]:
+                    part.append(Paragraph(f"<i>{T(b['comment'])}</i>", st_comment))
                 if b["meta"]:
                     part.append(Paragraph(T(b["meta"]), st_meta))
                 if b["dialog"]:
@@ -751,9 +777,72 @@ def write_pdf(session, tpl):
 
 
 # ---------------------------------------------------------------------------
+# runbook checklist (Markdown with tick boxes and a verification log)
+# ---------------------------------------------------------------------------
+def write_runbook(session, tpl):
+    """A procedure people can tick off: `- [ ]` per step, notes/warnings as quotes, and a 'last verified' line + log."""
+    blocks = build_blocks(session, tpl)
+    today = f"{dt.date.today():%Y-%m-%d}"
+    when = (tpl.verified or "").strip() or today
+    who = clean_text(tpl.author) or "________"
+    lines = []
+    if tpl.header:
+        lines += [f"_{clean_text(tpl.header)}_", ""]
+    lines += [f"# {clean_text(session.title)}", "", f"**Runbook** | Last verified: **{when}** by **{who}**", ""]
+    notes = [b for b in blocks if b["type"] == "callout" and b["level"] == "warning"]
+    if notes:
+        lines += ["## Before you start", ""]
+        lines += [f"- {n['text'].strip().splitlines()[0] if n['text'].strip() else ''}" for n in notes]
+        lines.append("")
+    lines += ["## Procedure", ""]
+    for b in blocks:
+        if b["type"] == "section":
+            lines += [f"### {b['text']}", ""]
+        elif b["type"] == "callout":
+            body = _md_escape_lines(b["text"])
+            lines.append(f"> **{CALLOUT[b['level']][0]}:** {body[0]}")
+            lines += [f"> {ln}" for ln in body[1:]]
+            lines.append("")
+        else:
+            lines.append(f"- [ ] **{b['n']}.** {b['text'].replace('`', '')}")
+            if b["comment"]:
+                lines.append(f"  - {b['comment']}")
+            if b["images"]:
+                lines.append(f"  - Screenshot: [{b['images'][0][1]}]({b['images'][0][1]})")
+    lines += ["", "## Verification log", "", "| Date | By | Result | Notes |", "|---|---|---|---|",
+              f"| {when} | {who} | | |", "| | | | |", ""]
+    if tpl.footer:
+        lines += ["---", f"_{clean_text(tpl.footer)}_", ""]
+    path = session.dir / "runbook.md"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+# ---------------------------------------------------------------------------
+# ZIP bundle: steps.md plus only the pictures it uses, ready to drop into a wiki or ticket
+# ---------------------------------------------------------------------------
+def write_bundle(session, tpl):
+    import zipfile
+    md = write_markdown(session, tpl)
+    used = {rel for b in build_blocks(session, tpl) if b["type"] == "step" for _l, rel in b["images"]}
+    logo = _logo(tpl)
+    if logo:
+        used.add("images/logo" + (Path(logo).suffix.lower() or ".png"))
+    path = session.dir / "steps_bundle.zip"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(md, "steps.md")
+        for rel in sorted(used):
+            f = session.dir / rel
+            if f.exists():
+                z.write(f, rel.replace("\\", "/"))
+    return path
+
+
+# ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
-WRITERS = {"md": write_markdown, "docx": write_docx, "html": write_html, "pdf": write_pdf, "txt": write_text}
+WRITERS = {"md": write_markdown, "docx": write_docx, "html": write_html, "pdf": write_pdf, "txt": write_text,
+           "runbook": write_runbook, "zip": write_bundle}
 
 
 def export(session, tpl, formats):

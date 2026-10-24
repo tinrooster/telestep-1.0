@@ -6,7 +6,7 @@ import sys
 import tkinter as tk
 import webbrowser
 from pathlib import Path
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 import telestep_core as core
 
@@ -202,8 +202,22 @@ class HelpWindow(tk.Toplevel):
                         foreground="#1e5aa8", cursor="hand2")
         log.pack(anchor="center", pady=(12, 0))
         log.bind("<Button-1>", lambda e: open_log_folder(log_path))
-        ttk.Label(ab, text="Everything is recorded and stored locally on this computer.",
-                  foreground="gray").pack(anchor="center", pady=(24, 0))
+        import telestep_core
+        import telestep_settings as cfg
+        ver = f"Version {telestep_core.VERSION}" + ("   |   Portable mode (settings are kept next to the program)"
+                                                    if cfg.portable() else "")
+        ttk.Label(ab, text=ver, foreground="gray").pack(anchor="center", pady=(12, 0))
+        self.var_upd = tk.StringVar(value="")
+        upd = ttk.Label(ab, text="Check for updates", font=("Segoe UI", 10, "underline"), foreground="#1e5aa8",
+                        cursor="hand2")
+        upd.pack(anchor="center", pady=(6, 0))
+        upd.bind("<Button-1>", lambda e: self._check_updates())
+        self.lbl_upd = ttk.Label(ab, textvariable=self.var_upd, foreground="gray", wraplength=520, justify="center")
+        self.lbl_upd.pack(anchor="center")
+        ttk.Label(ab, text="Everything is recorded and stored locally on this computer. The only time Telestep uses "
+                           "the internet is\nwhen you press \"Check for updates\" (or switch the check on in "
+                           "Settings > Options).", foreground="gray", justify="center").pack(anchor="center",
+                                                                                           pady=(18, 0))
         nb.add(ab, text="About")
 
         lp_ = ttk.Frame(nb)
@@ -217,3 +231,34 @@ class HelpWindow(tk.Toplevel):
         nb.add(lp_, text="License")
         nb.select(ab if start == "about" else hp)
         self.bind("<Escape>", lambda e: self.destroy())
+
+    def _check_updates(self):
+        """Ask GitLab for the newest release in a background thread; never installs anything."""
+        import threading
+
+        import telestep_core
+        import telestep_update
+        self.var_upd.set("Checking...")
+        box = {}
+
+        def work():
+            box["r"] = telestep_update.check(telestep_core.VERSION)
+
+        t = threading.Thread(target=work, daemon=True)
+        t.start()
+
+        def poll():
+            if t.is_alive():
+                self.after(200, poll)
+                return
+            r = box.get("r", {})
+            msg = {"newer": f"Version {r.get('version', '').lstrip('v')} is available.",
+                   "current": f"You have the latest version ({telestep_core.VERSION}).",
+                   "unknown": "No published releases were found.",
+                   "error": f"Couldn't reach the update server ({r.get('error', '')})."}.get(r.get("status"), "")
+            self.var_upd.set(msg)
+            if r.get("status") == "newer" and messagebox.askyesno(
+                    "Telestep", msg + "\n\nOpen the download page?", parent=self):
+                webbrowser.open(r.get("url") or telestep_update.PAGE)
+
+        self.after(200, poll)

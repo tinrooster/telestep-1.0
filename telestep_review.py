@@ -17,6 +17,7 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 
 import telestep_core as core
+import telestep_privacy as priv
 import telestep_report as rep
 import telestep_widgets as w
 from telestep_model import Session, Step, new_id
@@ -28,13 +29,15 @@ PREVIEW_W, PREVIEW_H = 640, 340
 
 
 class ReviewWindow(tk.Toplevel):
-    def __init__(self, master, session, formats=None, own_root=False, support=False, on_done=None, on_cancel=None):
+    def __init__(self, master, session, formats=None, own_root=False, support=False, on_done=None, on_cancel=None,
+                 on_rule=None):
         """`support=True` is the cut-down 'check before sending' version used by Support mode: no report options,
         a 'Looks good - create the ZIP' button (calls `on_done`) and Back (calls `on_cancel`)."""
         super().__init__(master)
         self.s = session
         self.own_root = own_root
         self.support, self.on_done, self.on_cancel = support, on_done, on_cancel
+        self.on_rule = on_rule  # callable(mask dict): remember a hide area for future recordings (main app)
         self.title("Check your recording before it is sent" if support else f"Telestep - Review: {session.title}")
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.minsize(min(960, sw - 40), min(640, sh - 80))
@@ -56,7 +59,7 @@ class ReviewWindow(tk.Toplevel):
         self.var_zoom = tk.StringVar(value="100%")
         self.var_focus = tk.StringVar(value=core.FOCUS_MODES.get(tpl.focus, core.FOCUS_MODES["off"]))
         self._crop = (0, 0, 1, 1)                      # part of the screenshot on screen (image pixels)
-        self.var_style = tk.StringVar(value=core.MASK_STYLES["soft"])
+        self.var_style = tk.StringVar(value=core.MASK_STYLES["pixelate_fine"])
         self.var_all = tk.BooleanVar(value=False)
         self.var_level = tk.StringVar(value="Note")
         self.var_header = tk.StringVar(value=tpl.header)
@@ -64,6 +67,10 @@ class ReviewWindow(tk.Toplevel):
         self.var_author = tk.StringVar(value=tpl.author)
         self.var_logo = tk.StringVar(value=tpl.logo)
         self.var_env = tk.BooleanVar(value=tpl.environment)
+        self.var_verified = tk.StringVar(value=tpl.verified)
+        self.var_check = tk.BooleanVar(value=bool(session.settings.get("privacy_check", True)))
+        self.var_comment = tk.StringVar()
+        self.var_tool = tk.StringVar(value="hide")  # hide | box | arrow | text | num
         self.var_docstyle = tk.StringVar(value=rep.STYLES.get(tpl.style, rep.STYLES["report"]))
         self._edits = 0  # bumps when pictures are changed (masks) so "unexported changes" is noticed
         self._exported_sig = None
@@ -145,6 +152,9 @@ class ReviewWindow(tk.Toplevel):
             b.pack(side="left", padx=(0, 4))
             if text == "Leave out":
                 self.btn_skip = b
+        self.mb_more = ttk.Menubutton(bar, text="More", width=7)
+        self.mb_more.pack(side="left")
+        self.mb_more.configure(menu=self._more_menu(self.mb_more))
         ttk.Label(left, text="\u2611 = in the report    \u2610 = left out (greyed). Click the box, or use the button, to switch.",
                   foreground="gray").grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
         pan.add(left, weight=1)
@@ -191,8 +201,8 @@ class ReviewWindow(tk.Toplevel):
 
         cap = ttk.LabelFrame(right, text="Caption (shown in the report)", padding=6)
         cap.grid(row=3, column=0, sticky="ew", pady=(6, 0))
-        cap.columnconfigure(0, weight=1)
-        self.txt = tk.Text(cap, height=3, wrap="word", font=("Segoe UI", 10), undo=True)
+        cap.columnconfigure(0, weight=0)
+        self.txt = tk.Text(cap, height=2, wrap="word", font=("Segoe UI", 10), undo=True)
         self.txt.grid(row=0, column=0, columnspan=3, sticky="ew")
         self.txt.bind("<FocusOut>", lambda e: self.commit_caption())
         self.btn_reset = ttk.Button(cap, text="Reset to automatic wording", command=self.reset_caption)
@@ -201,6 +211,16 @@ class ReviewWindow(tk.Toplevel):
                                       state="readonly")
         self.cmb_level.grid(row=1, column=2, sticky="e", pady=(4, 0))
         self.cmb_level.bind("<<ComboboxSelected>>", lambda e: self._level_changed())
+
+        cm = ttk.Frame(cap)  # shares the row with the level box, which only notes use (notes have no comment)
+        cm.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(4, 0))
+        cm.columnconfigure(1, weight=1)
+        ttk.Label(cm, text="Comment").grid(row=0, column=0, padx=(0, 6))
+        self.ent_comment = ttk.Entry(cm, textvariable=self.var_comment)
+        self.ent_comment.grid(row=0, column=1, sticky="ew")
+        self.ent_comment.bind("<FocusOut>", lambda e: self._commit_comment())
+        self.ent_comment.bind("<Return>", lambda e: (self._commit_comment(), "break")[1])
+        cap.columnconfigure(1, weight=1)
 
         mk = ttk.LabelFrame(right, text="Hide private information in the screenshot", padding=6)
         mk.grid(row=4, column=0, sticky="ew", pady=(6, 0))
@@ -219,6 +239,15 @@ class ReviewWindow(tk.Toplevel):
         self.lbl_hint.grid(row=1, column=0, columnspan=4, sticky="w", pady=(4, 0))
         self._selbar = None
         self._paint_mask_button(False)
+        mu = ttk.Frame(right)
+        mu.grid(row=5, column=0, sticky="ew", pady=(4, 0))
+        ttk.Label(mu, text="Drag on the picture to:").pack(side="left")
+        for val, lab in (("hide", "Hide an area"), ("box", "Draw a box"), ("arrow", "Draw an arrow"),
+                         ("text", "Add text"), ("num", "Number")):
+            ttk.Radiobutton(mu, text=lab, value=val, variable=self.var_tool,
+                            command=self._tool_changed).pack(side="left", padx=(8, 16 if val == "num" else 0))
+        ttk.Button(mu, text="Clear marks", width=11, command=self.clear_marks).pack(side="right")
+        ttk.Button(mu, text="Undo mark", width=10, command=self.undo_mark).pack(side="right", padx=(0, 4))
         pan.add(right, weight=3)
 
         # ---- bottom: report options ----
@@ -231,27 +260,30 @@ class ReviewWindow(tk.Toplevel):
                                          state="readonly")
         self.cmb_docstyle.grid(row=0, column=1, sticky="ew", padx=(4, 12))
         self.cmb_docstyle.bind("<<ComboboxSelected>>", lambda e: self._style_changed())
-        self.lbl_style = ttk.Label(out, text="", foreground="gray")
-        self.lbl_style.grid(row=0, column=2, columnspan=2, sticky="w")
+        self.tip_style = w.Tip(self.cmb_docstyle, "")  # what the chosen style contains (updated in _style_changed)
+        ttk.Label(out, text="Logo").grid(row=0, column=2, sticky="w")
+        lg = ttk.Frame(out)
+        lg.grid(row=0, column=3, sticky="ew", padx=(4, 12))
+        lg.columnconfigure(0, weight=1)
+        ttk.Entry(lg, textvariable=self.var_logo).grid(row=0, column=0, sticky="ew")
+        ttk.Button(lg, text="...", width=3, command=self.pick_logo).grid(row=0, column=1, padx=(4, 0))
         ttk.Label(out, text="Header").grid(row=1, column=0, sticky="w", pady=(4, 0))
         ttk.Entry(out, textvariable=self.var_header).grid(row=1, column=1, sticky="ew", padx=(4, 12), pady=(4, 0))
         ttk.Label(out, text="Footer").grid(row=1, column=2, sticky="w", pady=(4, 0))
         ttk.Entry(out, textvariable=self.var_footer).grid(row=1, column=3, sticky="ew", padx=(4, 12), pady=(4, 0))
         ttk.Label(out, text="Author").grid(row=2, column=0, sticky="w", pady=(4, 0))
         ttk.Entry(out, textvariable=self.var_author).grid(row=2, column=1, sticky="ew", padx=(4, 12), pady=(4, 0))
-        ttk.Label(out, text="Logo").grid(row=2, column=2, sticky="w", pady=(4, 0))
-        lg = ttk.Frame(out)
-        lg.grid(row=2, column=3, sticky="ew", padx=(4, 12), pady=(4, 0))
-        lg.columnconfigure(0, weight=1)
-        ttk.Entry(lg, textvariable=self.var_logo).grid(row=0, column=0, sticky="ew")
-        ttk.Button(lg, text="...", width=3, command=self.pick_logo).grid(row=0, column=1, padx=(4, 0))
+        ttk.Label(out, text="Last verified").grid(row=2, column=2, sticky="w", pady=(4, 0))
+        ver = ttk.Entry(out, textvariable=self.var_verified)
+        ver.grid(row=2, column=3, sticky="ew", padx=(4, 12), pady=(4, 0))
+        w.Tip(ver, "Used by the Runbook checklist. Leave empty to use the day you export.")
         fm = ttk.Frame(out)
         fm.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(6, 0))
         ttk.Label(fm, text="Save as:").pack(side="left", padx=(0, 8))
         for k, label in rep.FORMATS.items():
-            ttk.Checkbutton(fm, text=label, variable=self.var_fmt[k]).pack(side="left", padx=(0, 10))
+            ttk.Checkbutton(fm, text=label, variable=self.var_fmt[k]).pack(side="left", padx=(0, 8))
         self.chk_env = ttk.Checkbutton(fm, text="Environment appendix", variable=self.var_env)
-        self.chk_env.pack(side="left", padx=(10, 0))
+        self.chk_env.pack(side="left", padx=(6, 0))
         if self.support:
             self._support_layout(root, out)
         else:
@@ -263,13 +295,15 @@ class ReviewWindow(tk.Toplevel):
         bar.columnconfigure(0, weight=1)
         self.lbl_where = ttk.Label(bar, text=f"Files are saved in:  {self.s.dir}", foreground="gray")
         self.lbl_where.grid(row=0, column=0, sticky="w")
-        ttk.Button(bar, text="Close", command=self.close).grid(row=0, column=4, padx=(6, 0))
-        ttk.Button(bar, text="Open folder", command=self.open_folder).grid(row=0, column=3, padx=(6, 0))
-        ttk.Button(bar, text="Copy steps as text", command=self.copy_text).grid(row=0, column=2, padx=(6, 0))
+        self.chk_privacy = ttk.Checkbutton(bar, text="Check for private information on export", variable=self.var_check)
+        self.chk_privacy.grid(row=0, column=1, padx=(10, 0))
+        ttk.Button(bar, text="Close", command=self.close).grid(row=0, column=5, padx=(6, 0))
+        ttk.Button(bar, text="Open folder", command=self.open_folder).grid(row=0, column=4, padx=(6, 0))
+        ttk.Button(bar, text="Copy steps as text", command=self.copy_text).grid(row=0, column=3, padx=(6, 0))
         self.btn_export = tk.Button(bar, text="Export", command=self.export, bg="#1565c0", fg="white", relief="flat",
                                     activebackground="#0d47a1", activeforeground="white", cursor="hand2",
                                     font=("Segoe UI", 11, "bold"), padx=22, pady=4, default="active")
-        self.btn_export.grid(row=0, column=1, padx=(10, 0))
+        self.btn_export.grid(row=0, column=2, padx=(10, 0))
 
     def _style_changed(self):
         """Documentation styles leave out timestamps, window/app details, dialog dumps and the environment."""
@@ -284,10 +318,10 @@ class ReviewWindow(tk.Toplevel):
                 self.var_env.set(self._env_before[0])
                 self._env_before = None
             self.chk_env.state(["!disabled"])
-        self.lbl_style.configure(text={
+        self.tip_style.text = {
             "report": "Everything: times, window and app details, dialog text and the environment appendix.",
             "docs": "Steps and pictures only - ready to edit into a user guide.",
-            "onesheet": "Steps and small pictures side by side, aiming for one page."}[self.style_key])
+            "onesheet": "Steps and small pictures side by side, aiming for one page."}[self.style_key]
 
     @property
     def focus_key(self):
@@ -386,6 +420,8 @@ class ReviewWindow(tk.Toplevel):
         self.txt.configure(state="normal")
         self.txt.delete("1.0", "end")
         self._txt_wording = self.wording
+        self.var_comment.set(st.comment if st and st.numbered else "")
+        self.ent_comment.configure(state="normal" if st and st.numbered else "disabled")
         if st:
             self.txt.insert("1.0", st.caption(self.wording))
             self.btn_reset.configure(state="normal" if st.kind not in ("note", "section") else "disabled")
@@ -419,7 +455,7 @@ class ReviewWindow(tk.Toplevel):
         st = self._cur
         img = self._current_image() if st else None
         cw, ch = max(self.cv.winfo_width(), 100), max(self.cv.winfo_height(), 100)
-        if self.cv.winfo_height() > 1 and self.cv.winfo_height() < 170:
+        if self.cv.winfo_height() > 1 and self.cv.winfo_height() < 130:
             self.cv.create_text(cw // 2, ch // 2, fill="#ffcc80", font=("Segoe UI", 10, "bold"), justify="center",
                                 text="The picture area is too small.\nMake this window taller (or maximize it).")
             self._photo = None
@@ -463,7 +499,10 @@ class ReviewWindow(tk.Toplevel):
         # hint banner (only on screen, never in the saved image)
         bx, by = self._off[0] + 8, self._off[1] + size[1] - 30
         t = self.cv.create_text(bx + 8, by + 11, anchor="w", fill="white", font=("Segoe UI", 9, "bold"), tags="hint",
-                                text="To hide something: click and drag a box on the picture")
+                                text={"hide": "To hide something: click and drag a box on the picture",
+                                      "box": "Drag to draw a box", "arrow": "Drag to draw an arrow",
+                                      "text": "Click where the text should go", "num": "Click to place a number"
+                                      }.get(self.var_tool.get(), ""))
         x0, y0, x1, y1 = self.cv.bbox(t)
         r = self.cv.create_rectangle(x0 - 8, y0 - 4, x1 + 8, y1 + 4, fill="#37474f", outline="", tags="hint")
         self.cv.tag_lower(r, t)
@@ -476,6 +515,8 @@ class ReviewWindow(tk.Toplevel):
     def _sel_press(self, e):
         if not self._cur or self._photo is None:
             return
+        if self.var_tool.get() != "hide":
+            return self._mark_press(e)
         self._sel_start = (e.x, e.y)
         if self._sel_rect:
             self.cv.delete(self._sel_rect)
@@ -485,10 +526,14 @@ class ReviewWindow(tk.Toplevel):
                                                   fill="#ff3d00", stipple="gray25")
 
     def _sel_drag(self, e):
+        if self.var_tool.get() != "hide":
+            return self._mark_drag(e)
         if self._sel_rect and self._sel_start:
             self.cv.coords(self._sel_rect, self._sel_start[0], self._sel_start[1], e.x, e.y)
 
     def _sel_release(self, e):
+        if self.var_tool.get() != "hide":
+            return self._mark_release(e)
         if not self._sel_rect or not self._sel_start:
             return
         x0, y0, x1, y1 = self.cv.coords(self._sel_rect)
@@ -501,6 +546,119 @@ class ReviewWindow(tk.Toplevel):
         else:
             self._drop_selbar()
         self._update_hint()
+
+    # ------------------------------------------------------------------ mark-up (boxes, arrows, text, numbers)
+    def _tool_changed(self):
+        self.clear_selection()
+        self.cv.configure(cursor="crosshair" if self.var_tool.get() == "hide" else "pencil")
+
+    def _to_image(self, x, y):
+        cl, ct, _cr, _cb = self._crop
+        k, (ox, oy) = self._scale, self._off
+        return round(cl + (x - ox) / k, 1), round(ct + (y - oy) / k, 1)
+
+    def _marks_ok(self):
+        st = self._cur
+        if not st or self._photo is None or not st.raw:
+            return False
+        if self.var_which.get() == "after":
+            messagebox.showinfo("Telestep", "Marks go on the 'before' picture. Switch to Before first.", parent=self)
+            return False
+        return True
+
+    def _mark_press(self, e):
+        tool = self.var_tool.get()
+        if not self._marks_ok():
+            return
+        if tool in ("text", "num"):
+            x, y = self._to_image(e.x, e.y)
+            if tool == "text":
+                txt = self._ask_text("Text on the picture", "Text to show:")
+                if not txt:
+                    return
+                self._add_mark({"t": "text", "p": [x, y], "text": txt})
+            else:
+                n = 1 + sum(1 for m in (self._cur.marks or []) if m.get("t") == "num")
+                self._add_mark({"t": "num", "p": [x, y], "n": n})
+            return
+        self._sel_start = (e.x, e.y)
+        self._sel_rect = self.cv.create_line(e.x, e.y, e.x, e.y, fill="#1565c0", width=3) if tool == "arrow" else \
+            self.cv.create_rectangle(e.x, e.y, e.x, e.y, outline="#1565c0", width=3)
+
+    def _mark_drag(self, e):
+        if self._sel_rect and self._sel_start:
+            self.cv.coords(self._sel_rect, self._sel_start[0], self._sel_start[1], e.x, e.y)
+
+    def _mark_release(self, e):
+        if not self._sel_rect or not self._sel_start or self.var_tool.get() not in ("box", "arrow"):
+            return
+        x0, y0 = self._to_image(*self._sel_start)
+        x1, y1 = self._to_image(e.x, e.y)
+        tool = self.var_tool.get()
+        self.cv.delete(self._sel_rect)
+        self._sel_rect = self._sel_start = None
+        if abs(x1 - x0) + abs(y1 - y0) < 8:
+            return
+        W, H = self._img_size
+        clip = lambda v, m: max(0.0, min(float(m), v))
+        self._add_mark({"t": tool, "p": [clip(x0, W), clip(y0, H), clip(x1, W), clip(y1, H)]})
+
+    def _add_mark(self, mark):
+        st = self._cur
+        st.marks = list(st.marks or []) + [mark]
+        self._marks_changed()
+
+    def _marks_changed(self):
+        self.s.save()
+        self._edits += 1
+        self.show_preview()
+
+    def undo_mark(self):
+        st = self._cur
+        if st and st.marks:
+            st.marks = st.marks[:-1] or None
+            self._marks_changed()
+
+    def clear_marks(self):
+        st = self._cur
+        if st and st.marks and messagebox.askyesno("Telestep", "Remove all marks from this picture?", parent=self):
+            st.marks = None
+            self._marks_changed()
+
+    # ------------------------------------------------------------------ extra step edits
+    def _more_menu(self, parent):
+        m = tk.Menu(parent, tearoff=0)
+        m.add_command(label="Merge selected steps into one", command=self.merge_selected)
+        m.add_command(label="Duplicate step", command=self.duplicate_selected)
+        m.add_separator()
+        m.add_command(label="Move to top", command=lambda: self.move(-10_000))
+        m.add_command(label="Move to bottom", command=lambda: self.move(10_000))
+        return m
+
+    def merge_selected(self):
+        sel = [st for st in self.selected_steps() if st.numbered]
+        if len(sel) < 2:
+            messagebox.showinfo("Telestep", "Select two or more steps (Ctrl+click or Shift+click), then merge them.",
+                                parent=self)
+            return
+        if not messagebox.askyesno(
+                "Telestep", f"Merge {len(sel)} steps into one?\n\nThe first screenshot is kept, the last one becomes the "
+                "'after' picture, and the captions are joined. The other steps are removed.", parent=self):
+            return
+        head = self.s.merge(sel)
+        if head:
+            self.s.save()
+            self._edits += 1
+            self.refresh([head.id])
+
+    def duplicate_selected(self):
+        sel = self.selected_steps()
+        if len(sel) != 1 or sel[0].kind == "section":
+            return
+        twin = self.s.duplicate(sel[0])
+        self.s.save()
+        self._edits += 1
+        self.refresh([twin.id])
 
     # ------------------------------------------------------------------ right-click menus
     @staticmethod
@@ -537,8 +695,14 @@ class ReviewWindow(tk.Toplevel):
         m.add_command(label="Reset caption to automatic wording", command=self.reset_caption,
                       state=on(one and st.kind not in ("note", "section") and bool(st.custom)))
         m.add_separator()
-        m.add_command(label="Move up", accelerator="Alt+Up", command=lambda: self.move(-1), state=on(one))
-        m.add_command(label="Move down", accelerator="Alt+Down", command=lambda: self.move(1), state=on(one))
+        m.add_command(label="Move up", accelerator="Alt+Up", command=lambda: self.move(-1), state=on(sel))
+        m.add_command(label="Move down", accelerator="Alt+Down", command=lambda: self.move(1), state=on(sel))
+        m.add_command(label="Move to top", command=lambda: self.move(-10_000), state=on(sel))
+        m.add_command(label="Move to bottom", command=lambda: self.move(10_000), state=on(sel))
+        m.add_separator()
+        m.add_command(label="Merge selected steps", command=self.merge_selected,
+                      state=on(len([x for x in sel if x.numbered]) > 1))
+        m.add_command(label="Duplicate step", command=self.duplicate_selected, state=on(one and st.kind != "section"))
         m.add_separator()
         all_skipped = bool(sel) and all(s.skip for s in sel)
         m.add_command(label="Put back in report" if all_skipped else "Leave out of report", command=self.toggle_skip,
@@ -599,6 +763,31 @@ class ReviewWindow(tk.Toplevel):
             self.var_all.set(False)
             self._update_hint()
 
+    def _hide_and_remember(self):
+        """Hide the selection here, and save it as a rule: the same part of any window with this title is hidden in
+        future recordings (stored as fractions of the window, so it survives resizing)."""
+        st, rect = self._cur, self.selection_in_image()
+        win = (st.marker or {}).get("win") if st else None
+        if not (st and rect and win and self.on_rule):
+            return
+        from tkinter import simpledialog
+        title = simpledialog.askstring("Future recordings", "Hide this area in future recordings of windows whose "
+                                       "title contains:", initialvalue=st.window[:80], parent=self)
+        if not title or not title.strip():
+            return
+        wl, wt, wr, wb = win
+        ww, wh = max(1.0, wr - wl), max(1.0, wb - wt)
+        clip = lambda v: round(max(0.0, min(1.0, v)), 4)
+        frac = (clip((rect[0] - wl) / ww), clip((rect[1] - wt) / wh), clip((rect[2] - wl) / ww), clip((rect[3] - wt) / wh))
+        if frac[2] - frac[0] < 0.005 or frac[3] - frac[1] < 0.005:
+            messagebox.showinfo("Telestep", "That area is outside the window, so it can't be remembered.", parent=self)
+            return
+        style = next((k for k, v in core.MASK_STYLES.items() if v == self.var_style.get()), "solid")
+        self.apply_mask(confirm=False)
+        self.on_rule(core.Mask(title=title.strip(), style=style, frac=frac, label="").to_dict())
+        messagebox.showinfo("Telestep", f"Saved. In future recordings that part of any window titled "
+                            f"\"{title.strip()}\" will be hidden (see Settings > Privacy).", parent=self)
+
     def _cv_menu(self, e):
         """Right-click on the picture: hide things, switch Before/After, exclude or delete the step."""
         st = self._cur
@@ -616,6 +805,9 @@ class ReviewWindow(tk.Toplevel):
             sub.add_command(label=core.MASK_STYLES[k], command=lambda k=k: self._hide_with(k))
         m.add_cascade(label="Hide selected area as", menu=sub, state=on(sel_ok))
         m.add_command(label="Hide selected area on every screenshot...", command=self._hide_everywhere, state=on(sel_ok))
+        can_rule = bool(self.on_rule and sel_ok and st and st.window and (st.marker or {}).get("win"))
+        m.add_command(label="Hide selected area now and in future recordings of this window...",
+                      command=self._hide_and_remember, state=on(can_rule))
         m.add_command(label="Clear selection", command=self.clear_selection, state=on(self._sel_rect))
         m.add_separator()
         has_after = bool(st and st.raw_after and (self.s.dir / st.raw_after).exists())
@@ -684,14 +876,14 @@ class ReviewWindow(tk.Toplevel):
         n = sum(1 for s in self.s.steps if s.raw)
         scope = f"ALL {n} screenshots" if self.var_all.get() else "this screenshot only"
         if self._sel_rect and self.btn_mask.cget("state") == "normal":
-            msg = f'Area selected. Pick a style, then click "Hide this area" - it will be applied to {scope}.'
+            msg = f'Area selected. Pick a style, then click "Hide this area" ({scope}).'
         elif not self._cur or self._photo is None:
-            msg = "Select a step with a screenshot, then drag a box on the picture to choose what to hide."
+            msg = "Select a step with a screenshot, then drag a box on the picture."
         else:
-            msg = f"Drag a box on the picture to choose the area. It will be hidden on {scope}."
+            msg = f"Drag a box on the picture to choose an area to hide ({scope})."
         ready = bool(self._sel_rect and self.btn_mask.cget("state") == "normal")
         self.lbl_hint.configure(foreground="#d84315" if ready else "gray")
-        self.var_hint.set(msg + " Hiding permanently changes the saved screenshot(s).")
+        self.var_hint.set(msg + " Hiding is permanent.")
 
     def selection_in_image(self):
         """The dragged rectangle in image pixels (l, t, r, b), or None."""
@@ -735,7 +927,17 @@ class ReviewWindow(tk.Toplevel):
         return count
 
     # ------------------------------------------------------------------ editing
+    def _commit_comment(self):
+        st = self._cur
+        if not st or not st.numbered:
+            return
+        text = self.var_comment.get().strip()
+        if text != (st.comment or ""):
+            st.comment = text
+            self.s.save()
+
     def commit_caption(self):
+        self._commit_comment()
         st = self._cur
         if not st or str(self.txt.cget("state")) == "disabled":
             return
@@ -785,11 +987,12 @@ class ReviewWindow(tk.Toplevel):
 
     def move(self, delta):
         sel = self.selected_steps()
-        if len(sel) != 1:
+        if not sel:
             return
-        if self.s.move(sel[0], delta):
+        if self.s.move_block(sel, delta):
             self.s.save()
-            self.refresh([sel[0].id])
+            self._edits += 1
+            self.refresh([st.id for st in sel])
 
     def delete_selected(self, confirm=True):
         sel = self.selected_steps()
@@ -885,21 +1088,24 @@ class ReviewWindow(tk.Toplevel):
             self.tpl, wording=self.wording, header=self.var_header.get().strip(),
             footer=self.var_footer.get().strip(), logo=self.var_logo.get().strip(),
             author=self.var_author.get().strip(), style=self.style_key, focus=self.focus_key,
+            verified=self.var_verified.get().strip(),
             environment=(self._env_before[0] if getattr(self, "_env_before", None) else self.var_env.get()))
 
     def _state_sig(self):
-        steps = [(st.id, st.kind, st.skip, st.custom, st.friendly, st.tech, st.level) for st in self.s.steps]
+        steps = [(st.id, st.kind, st.skip, st.custom, st.friendly, st.tech, st.level, st.comment, repr(st.marks))
+                 for st in self.s.steps]
         fm = tuple(k for k, v in self.var_fmt.items() if v.get())
         return repr((self.template().to_dict(), steps, self.var_title.get(), fm, self._edits))
 
     def _has_outputs(self):
-        return any((self.s.dir / f"steps.{ext}").exists() for ext in rep.WRITERS)
+        return any((self.s.dir / f).exists() for f in rep.OUTPUT_FILES.values())
 
     def save(self):
         self.commit_caption()
         self._set_title()
         self.s.settings["template"] = self.template().to_dict()
         self.s.settings["wording"] = self.wording
+        self.s.settings["privacy_check"] = bool(self.var_check.get())
         return self.s.save()
 
     def export(self, quiet=False):
@@ -908,6 +1114,14 @@ class ReviewWindow(tk.Toplevel):
         if not fmts:
             messagebox.showinfo("Telestep", "Tick at least one format.", parent=self)
             return {}
+        if self.var_check.get() and not self.support:
+            go_on, changed = priv.check_before_export(self, self.s, "solid", self.s.numbering())
+            if changed:
+                self._edits += 1
+                self.refresh()
+                self.on_select()
+            if not go_on:
+                return {}
         self.config(cursor="watch")
         self.update_idletasks()
         try:

@@ -9,6 +9,7 @@ review/edit afterwards and export to Markdown, DOCX, HTML, PDF or plain text.
 
 Record:   python telestep_recorder.py --title "Fix Teams audio"
 Hotkeys:  F9 pause/resume   F10 stop   Ctrl+Shift+F7 note   Ctrl+Shift+F8 screenshot   Ctrl+Shift+F6 delete last step
+          Ctrl+Shift+F5 comment on the next step
 Review:   python telestep_recorder.py --review  <session folder>
 Export:   python telestep_recorder.py --export  <session folder> --format md,docx,html,pdf,txt
 Rescue:   python telestep_recorder.py --export  <old v1 folder with steps.md>     (re-imports it as a v2 session)
@@ -128,6 +129,7 @@ class Recorder:
         self._lock = threading.Lock()
         self._tls = threading.local()
         self._last_pw = False
+        self._pending_comment = ""
         self._mods = set()
         self._press = None
         self._last_click = None
@@ -271,6 +273,11 @@ class Recorder:
         """Insert a free-text note (level: note | warning | tip) as its own entry."""
         self._flush_typing()
         self.q.put(("note", dt.datetime.now(), text, level))
+
+    def add_comment(self, text):
+        """Attach a comment to the NEXT numbered step that gets recorded (shown under its caption)."""
+        self._flush_typing()
+        self.q.put(("comment", dt.datetime.now(), text))
 
     def manual_shot(self, pos=None, from_menu=False):
         """Screenshot without a click (hotkey / toolbar button).  Uses the cursor position to pick the area.
@@ -570,6 +577,8 @@ class Recorder:
         info = info or {}
         with self._stage("app-info"):
             app = core.app_info(info.get("pid", 0)) if info.get("pid") else {}
+        if self._pending_comment and kind not in ("note", "section", "dialog") and "comment" not in kw:
+            kw["comment"], self._pending_comment = self._pending_comment, ""
         return Step(new_id(), kind, when.strftime("%H:%M:%S"), friendly, tech, window=info.get("title", ""),
                     app=app.get("app", ""), app_version=app.get("version", ""), **kw)
 
@@ -615,6 +624,10 @@ class Recorder:
     def _do_type(self, auto, when, text, count):
         f, t = type_texts(self.o.key_mode, text, count, self._last_pw)
         self.session.add(self._new("type", when, f, t))
+
+    def _do_comment(self, auto, when, text):
+        text = clean_text(text)
+        self._pending_comment = (self._pending_comment + " " + text).strip() if self._pending_comment else text
 
     def _do_note(self, auto, when, text, level):
         text = clean_text(text)
@@ -771,7 +784,8 @@ class Recorder:
     # ------------------------------------------------------------------ lifecycle
     def _register_hotkeys(self):
         actions = {"pause": self.toggle_pause, "stop": self.request_stop,
-                   "note": lambda: self.events.put(("note",)), "shot": self.manual_shot, "undo": self.undo_last}
+                   "note": lambda: self.events.put(("note",)), "shot": self.manual_shot, "undo": self.undo_last,
+                   "comment": lambda: self.events.put(("comment",))}
         bindings = {self.o.hotkeys[a]: fn for a, fn in actions.items() if self.o.hotkeys.get(a)}
         self._hk = core.HotkeyListener(bindings)
         self._hk.start()
@@ -870,7 +884,7 @@ def main(argv=None):
     ap.add_argument("--mask", action="append", default=[], metavar="L,T,R,B[:style]")
     ap.add_argument("--hide-window", action="append", default=[], metavar="TITLE[:style]",
                     help="mask any window whose title contains TITLE (follows the window)")
-    ap.add_argument("--mask-style", default="solid", choices=list(core.MASK_STYLES) + list(core.LEGACY_STYLES))
+    ap.add_argument("--mask-style", default="pixelate_fine", choices=list(core.MASK_STYLES) + list(core.LEGACY_STYLES))
     ap.add_argument("--ocr-redact", default="", help="comma list of ip,mac,key,email")
     ap.add_argument("--keys", choices=["none", "count", "text"], default="count")
     ap.add_argument("--log-keys", action="store_true", help="same as --keys text")

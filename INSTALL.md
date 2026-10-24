@@ -126,6 +126,13 @@ switch to turn it all off without losing your choices.
 
 To move Telestep to another PC, copy the program and, if you want your presets and header/footer, `settings.json`.
 
+**Portable mode:** create an empty file named `portable.txt` next to `Telestep.exe` (or `telestep.py`). Settings
+(`settings.json`), the log and, unless you choose another folder, recordings (`Recordings\`) are then kept beside the
+program, so it can run from a USB stick or a locked-down PC without touching `%APPDATA%` or `Documents`.
+
+**Network use:** none, except the optional update check (Settings > Options, off by default, or About > Check for
+updates). It makes one HTTPS request to the project's GitLab release list and never downloads anything.
+
 ## Updating and removing
 
 - **From source:** `git pull`, then `python -m pip install -r requirements.txt` again (if packages changed).

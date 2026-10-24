@@ -26,6 +26,7 @@ Keep all the `telestep*.py` files in one folder. Replace any older copies togeth
 | Ctrl+Shift+F7 | add a note / warning / tip |
 | Ctrl+Shift+F8 | take a screenshot now (no click needed) |
 | Ctrl+Shift+F6 | delete the last step |
+| Ctrl+Shift+F5 | comment on the next step (a line shown under its caption) |
 
 (Change them in Options. They use Windows `RegisterHotKey`, not a keyboard hook, so "Mouse only" really means no key logging at all.)
 
@@ -45,10 +46,15 @@ Masks are burned into the screenshot *before* it is saved - the unmasked screen 
   (e.g. `Password`, `Vault`, `Teams chat`). (It hides the whole window rectangle, including parts of other windows that overlap it.)
 - Styles: solid black, soft gray + "Hidden" label, match background (looks like nothing was there), pixelated (normal or fine), blurred (normal or heavy). For real secrets (passwords, keys) use solid black: blur and pixelation are meant to look good, not to withstand a determined attempt to undo them.
   **Faded** only de-emphasises - the text is still readable, so don't use it for secrets.
-- **OCR redaction** (optional) masks anything that looks like an IP address, MAC address, long key/token or e-mail.
+- **Hide common secrets** (Privacy tab) is one click: it turns OCR on and ticks every kind below.
+- **OCR redaction** (optional) masks anything that looks like an IP address, MAC address, long key/token, e-mail, card-like number or ID number (123-45-6789).
   Needs `pip install pytesseract` **and** the Tesseract program (https://github.com/UB-Mannheim/tesseract/wiki).
   OCR can miss text - treat it as a safety net and review the pictures.
 - In the review editor you can drag a rectangle on any screenshot and mask it (this step or all steps) after the fact.
+- **Rules for one app:** in the review editor, select an area, right-click the picture and choose *Hide selected area now and
+  in future recordings of this window...*. Telestep remembers that part of any window whose title contains your text (as a
+  share of the window, so it still fits after a resize) and hides it in every future recording. It appears in the mask list
+  and can be removed there.
 
 ## Files
 ```
@@ -91,6 +97,24 @@ Settings opens the full toolbar; when you collapse Settings (the ▲ button) you
 
 Settings > Options > Toolbar opacity makes the toolbar see-through (30-100%). It only applies while Settings is collapsed; with Settings open the toolbar is solid (while you drag the slider you see the chosen level). With "Solid while the pointer is over it" ticked it also becomes fully solid when you point at it.
 
+## Mark up the pictures
+Under the picture, **Drag on the picture to:** switches the mouse from hiding to *Draw a box*, *Draw an arrow*, *Add text* or
+*Number* (click to drop 1, 2, 3 ... call-outs). Marks are blue so they stand apart from Telestep's red click marker, they
+are stored with the step (the saved screenshot is never changed), and they appear in every export. **Undo mark** removes
+the last one, **Clear marks** all of them. Marks go on the *Before* picture.
+
+## Comments
+A step can have a one-line comment shown under its caption (for what to wait for, why, or what to expect). While recording
+press Ctrl+Shift+F5 (or right-click the toolbar > *Comment on next step*) and it is attached to the next step you record.
+In the review editor use the **Comment** box under the caption.
+
+## Editing steps
+- **Merge**: select two or more steps (Ctrl+click or Shift+click) and use *More > Merge selected steps* (or right-click).
+  The captions are joined ("Click File, then click Save"), the first screenshot is kept and the last one becomes the
+  *After* picture. The other steps are removed.
+- **Duplicate** a step (for example to mark up the same screenshot twice), **Move to top / bottom**, and Up / Down now move
+  a whole selection together. Select a range with Shift+click and **Delete** removes it.
+
 ## Hotkeys
 In Settings, click a hotkey box and press the keys you want (for example Ctrl+Shift+F7). Esc cancels, Backspace resets
 to the default. A key can't be used twice, and plain letters need Ctrl, Alt or Shift.
@@ -122,6 +146,25 @@ In Support mode set `"focus": "window"` or `"control"` in `telestep_support.json
 ## Exporting
 **Export** (the blue button, also Ctrl+Enter) writes the files into the recording folder shown beside it; it then offers to
 open that folder. If you close the window with changes that haven't been exported, Telestep asks first.
+
+Formats: Markdown (with a pictures folder), Word, HTML (one self-contained file), PDF and plain text, plus
+- **Runbook checklist** (`runbook.md`): a tick-box procedure (`- [ ]` per step), warnings gathered under "Before you start",
+  and a *Verification log* with the *Last verified* date and author (blank date = the day you export).
+- **ZIP bundle** (`steps_bundle.zip`): `steps.md` plus only the pictures it uses, ready to attach to a wiki page or ticket.
+
+**Check for private information before exporting** (on by default, switch it off under the format boxes): Telestep searches
+captions, comments, window titles and dialog text for e-mail addresses, IP and MAC addresses, long keys, card-like and ID
+numbers, and text such as `password: ...`. If it finds something a list opens: *Hide* replaces it with [hidden], *Ignore*
+remembers that it is fine, *Also scan the screenshots* runs OCR over the pictures (slow, needs Tesseract) and *Hide* then
+covers the matches. Matches are guesses; a clean result does not prove a screenshot is safe.
+
+## Portable mode and updates
+- **Portable mode**: create an empty file named `portable.txt` next to `Telestep.exe` (or the scripts). Settings, the log
+  and, unless you pick another folder, recordings (`Recordings\`) then live beside the program, so it can run from a USB
+  stick. Without that file everything is under `%APPDATA%\Telestep` and `Documents\Telestep`.
+- **Update check**: off by default. Switch it on in Options, or use *About > Check for updates*. It makes one HTTPS request
+  to the project's GitLab release list (nothing about you or your recordings), at most weekly, and only offers to open the
+  download page; it never downloads or installs anything. It is the only time Telestep uses the internet.
 
 ## Troubleshooting
 

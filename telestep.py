@@ -221,6 +221,7 @@ class App:
         self._adjusting_opacity = False
         self._hover = False
         self.var_compact = tk.BooleanVar(value=bool(d.get("compact_toolbar", False)))
+        self.var_upd_check = tk.BooleanVar(value=bool(d.get("update_check", False)))
         self._compact_on, self._expanded = False, False  # icon mode shown / expanded under the pointer
         self._leave_t, self._cx0, self._cy0, self._drag = 0.0, None, None, None
         self._badges = {}
@@ -301,6 +302,7 @@ class App:
         self.apply_capture_exclusion()
         self._apply_opacity()
         self._sync_mode()
+        self.root.after(6000, self._maybe_check_updates)
         if self.var_tray.get():
             self.tray.start()
         self.poll()
@@ -407,19 +409,23 @@ class App:
                                            command=self.update_scope_label) for k in core.OCR_PATTERNS]
         for i, c in enumerate(self.ocr_checks):
             c.grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 12))
+        r0 = (len(self.ocr_checks) + 1) // 2
+        self.btn_secrets = ttk.Button(ocr, text="Hide common secrets", command=self.hide_common_secrets)
+        self.btn_secrets.grid(row=r0, column=0, sticky="w", pady=(4, 0))
+        w.Tip(self.btn_secrets, "One click: turns OCR on and ticks every kind above (needs Tesseract)")
         self.chk_ocr_labels = ttk.Checkbutton(ocr, text="Label clicks on unnamed controls with nearby text (OCR)",
                                               variable=self.var_ocr_labels)
-        self.chk_ocr_labels.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.chk_ocr_labels.grid(row=r0 + 1, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.var_ocr_note = tk.StringVar(value="")
         ttk.Label(ocr, textvariable=self.var_ocr_note, foreground="gray", wraplength=int(330 * self.scale),
-                  justify="left").grid(row=3, column=0, columnspan=2, sticky="w")
+                  justify="left").grid(row=r0 + 2, column=0, columnspan=2, sticky="w")
         ttk.Label(ocr, text="OCR is the slowest part of recording: it adds a few seconds per click, more with several "
                             "monitors or a slow computer. Steps are finished in the background, and the toolbar "
                             "counter shows how many are waiting.",
                   foreground="gray", wraplength=int(330 * self.scale), justify="left"
-                  ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+                  ).grid(row=r0 + 3, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.lock_privacy = [self.cmb_keys, self.lst_masks, self.btn_madd, self.btn_mwin, self.btn_mdel, self.btn_mclr,
-                             self.cmb_mstyle, self.chk_ocr_on] + self.ocr_checks + [self.chk_ocr_labels]
+                             self.cmb_mstyle, self.chk_ocr_on, self.btn_secrets] + self.ocr_checks + [self.chk_ocr_labels]
 
     def _tab_report(self):
         t = self.tab_report
@@ -476,6 +482,12 @@ class App:
         ttk.Label(t, text="Takes effect when Settings is collapsed.",
                   foreground="gray", wraplength=int(330 * self.scale), justify="left"
                   ).grid(row=9, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(t, text="Check for a newer version at startup (about once a week)",
+                        variable=self.var_upd_check).grid(row=10, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Label(t, text="Off by default. This is the only time Telestep uses the internet: one request to the project's "
+                          "GitLab page, nothing about you or your recordings. It never downloads anything by itself.",
+                  foreground="gray", wraplength=int(330 * self.scale), justify="left"
+                  ).grid(row=11, column=0, columnspan=2, sticky="w")
         op = ttk.Frame(t)
         op.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         ttk.Label(op, text="Toolbar opacity").grid(row=0, column=0, sticky="w")
@@ -499,7 +511,7 @@ class App:
                             padding=6)
         hk.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         names = {"pause": "Pause / resume", "stop": "Stop and save", "note": "Add note", "shot": "Screenshot",
-                 "undo": "Delete last step"}
+                 "undo": "Delete last step", "comment": "Comment on next step"}
         self.hk_entries = []
         for i, k in enumerate(cfg.DEFAULT_HOTKEYS):
             ttk.Label(hk, text=names[k]).grid(row=i // 2, column=(i % 2) * 2, sticky="w", pady=1)
@@ -809,6 +821,7 @@ class App:
                          "logo": self.var_logo.get().strip(), "author": self.var_author.get().strip(),
                          "environment": self.var_env.get(), "focus": self.focus_key()},
             "hotkeys": {k: v.get().strip() for k, v in self.var_hk.items()}, "flash": self.var_flash.get(),
+            "update_check": self.var_upd_check.get(), "update_last": self.data.get("update_last", ""),
             "sound": self.var_sound.get(), "tray": self.var_tray.get(), "hide_in_tray": self.var_hidetray.get(),
             "close_to_tray": self.var_closetray.get(),
             "hide_from_capture": self.var_hide.get(), "overlays": self.var_overlay.get(),
@@ -975,6 +988,19 @@ class App:
         for wd in self.ocr_checks + [self.chk_ocr_labels]:
             self._enable(wd, on)
 
+    def hide_common_secrets(self):
+        """One click: OCR on and every pattern ticked (IPs, MACs, keys, e-mail, card and ID numbers)."""
+        self.var_ocr_on.set(True)
+        for k in core.COMMON_SECRETS:
+            if k in self.var_ocr:
+                self.var_ocr[k].set(True)
+        self._ocr_sync()
+        self.update_scope_label()
+        if not core.ocr_available():
+            messagebox.showinfo("Telestep", "Everything is ticked, but OCR needs the Tesseract program and "
+                                "pytesseract, which are not installed here.\n\nSee INSTALL.md > Optional extras.",
+                                parent=self.root)
+
     def _ocr_toggled(self):
         self._ocr_sync()
         self.update_scope_label()
@@ -1102,6 +1128,13 @@ class App:
         self.refresh_masks()
         self.update_scope_label()
 
+    def add_rule(self, d):
+        """A hide area saved from the review window: the same part of windows with this title is hidden from now on."""
+        self.masks.append(core.Mask.from_dict(d))
+        self.refresh_masks()
+        self.update_scope_label()
+        self.persist()
+
     def remove_mask(self):
         sel = self.lst_masks.curselection()
         if sel and sel[0] < len(self.masks):
@@ -1209,6 +1242,42 @@ class App:
         if dlg.result:
             rec.add_note(dlg.result, dlg.level)
 
+    def _maybe_check_updates(self):
+        """Once a week, only if switched on: ask GitLab for the newest release (background thread, never installs)."""
+        import datetime as _dt
+        if not self.var_upd_check.get():
+            return
+        try:
+            last = _dt.date.fromisoformat(self.data.get("update_last") or "2000-01-01")
+        except ValueError:
+            last = _dt.date(2000, 1, 1)
+        if (_dt.date.today() - last).days < 7:
+            return
+        import telestep_update
+
+        def work():
+            self._upd_result = telestep_update.check(core.VERSION)
+
+        threading.Thread(target=work, daemon=True).start()
+        self.data["update_last"] = _dt.date.today().isoformat()
+        self.persist()
+
+    def add_comment(self):
+        """A one-line remark attached to the next step you record (shown under its caption)."""
+        if not self.rec:
+            return
+        rec = self.rec
+        was_paused = rec.paused
+        rec.paused = True
+        self.root.deiconify()
+        try:
+            dlg = w.NoteDialog(self.root, comment=True)
+        finally:
+            rec.paused = was_paused
+        if dlg.result:
+            rec.add_comment(dlg.result)
+            self.toast("Comment saved - it goes with your next step.", 3)
+
     def formats(self):
         return [k for k, v in self.var_fmt.items() if v.get()]
 
@@ -1308,7 +1377,8 @@ class App:
                 self.review.destroy()
             except tk.TclError:
                 pass
-        self.review = telestep_review.ReviewWindow(self.root, session, formats={k: v.get() for k, v in self.var_fmt.items()})
+        self.review = telestep_review.ReviewWindow(self.root, session, formats={k: v.get() for k, v in self.var_fmt.items()},
+                                                   on_rule=self.add_rule)
         self.out_dir = session.dir
         return self.review
 
@@ -1322,6 +1392,8 @@ class App:
             m.add_command(label="Stop and save", accelerator=self.var_hk["stop"].get(), command=self.stop)
             m.add_separator()
             m.add_command(label="Add note...", accelerator=self.var_hk["note"].get(), command=self.add_note)
+            m.add_command(label="Comment on next step...", accelerator=self.var_hk["comment"].get(),
+                          command=self.add_comment)
             m.add_command(label="Take screenshot now", accelerator=self.var_hk["shot"].get(),
                           command=lambda: self.shot(from_menu=True))
         else:
@@ -1420,6 +1492,8 @@ class App:
                         pass
             elif ev[0] == "note":
                 self.add_note()
+            elif ev[0] == "comment":
+                self.add_comment()
             elif ev[0] == "undone":
                 self.toast(f"Deleted last step: {ev[1]}", 3)
             elif ev[0] == "warn":
@@ -1465,6 +1539,12 @@ class App:
                                     f"(settings tab: {tab}, state: {self.state})\n")
             except Exception:
                 pass
+        if getattr(self, "_upd_result", None) is not None:
+            r, self._upd_result = self._upd_result, None
+            self._dlog(f"update check: {r.get('status')} {r.get('version', '')} {r.get('error', '')}".strip())
+            if r.get("status") == "newer":
+                self.toast(f"Telestep {r['version'].lstrip('v')} is available. Help > About > Check for updates "
+                           "opens the download page.", 15)
         if self._ocr_result is not None:
             self.var_ocr_note.set("Tesseract found - OCR features are active." if self._ocr_result
                                   else "Tesseract is not installed, so the OCR options do nothing yet (see README).")

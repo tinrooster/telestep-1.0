@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Privacy: card-like and ID numbers join the OCR kinds; a "Hide common secrets" button turns OCR on and ticks them all. A check before export searches captions, comments, window titles and dialog text (and, on request, the screenshots by OCR) for private-looking data and offers to hide or ignore it. Rules for one app: from the review editor, hide an area now and in future recordings of any window with a given title (stored as fractions of the window).
+- Review editor: merge steps, duplicate a step, move to top/bottom, and move several selected steps together; a Comment line under any step (also recorded with Ctrl+Shift+F5 / right-click > Comment on next step); box, arrow, text and numbered call-out marks drawn on the pictures (stored per step, never burned into the saved screenshot).
+- Export: Runbook checklist (`runbook.md`, with "Last verified" and a verification log) and a ZIP bundle (`steps_bundle.zip`: Markdown plus the pictures it uses). Comments appear in every format.
+- Portable mode: `portable.txt` (or an existing `settings.json`) next to the program keeps settings, the log and recordings there.
+- Optional update check (off by default, Settings > Options, or About > Check for updates): one HTTPS request to the project's GitLab releases, never downloads anything.
+- Default hide style is now Pixelated (fine) for new settings, the command line and the review window's Hide tool. Existing saved settings keep their choice.
 - Icon toolbar: minimize the toolbar to a small always-on-top icon (button on the toolbar, right-click menu, or Settings > Options). Pointing at it expands Record / Pause / Stop and a Settings button (which shows the full toolbar and returns to the icon when Settings is collapsed); the icon shows idle / recording / paused. Drag to move. Right-click > Full toolbar leaves icon mode.
 - INSTALL.md: install, build and troubleshooting guide.
 - HELP.md: troubleshooting entries tidied.

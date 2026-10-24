@@ -17,12 +17,15 @@ Nothing leaves your computer: no cloud service, no account, no upload.
 - **Privacy:**
   - Masks (fixed areas, or windows matched by title that follow the window when it moves) are applied before anything is saved.
   - Styles: solid, soft gray, background-matched, pixelated (normal/fine), blurred (normal/heavy), and faded (readable, for de-emphasis only). Older "hatched" and "frosted" sessions still open (as soft gray and blurred).
-  - Optional OCR redaction of IP addresses, MAC addresses, keys and e-mail addresses.
+  - Optional OCR redaction of IP addresses, MAC addresses, keys, e-mail addresses, card-like and ID numbers, with a one-click "Hide common secrets".
+  - A check before export: captions, comments and window titles are searched for the same kinds of data (and, on request, the screenshots by OCR) and anything found can be hidden or ignored.
+  - Rules for one app: hide the same part of a window (as a share of its size) in every future recording.
 - **Right-click menus** on the step list, the screenshot and the toolbar.
 - **Smarter captions:** controls that expose no name are labelled with nearby on-screen text (OCR, optional).
 - **Report styles:** Technical report, clean end-user Documentation, or a condensed one-sheet Documentation layout.
-- **Review editor:** delete, exclude, reorder, edit captions, add section headings and Note / Warning / Tip callouts, switch between friendly and technical wording, and mask anything you missed after the fact.
-- **Export:** Markdown, DOCX, HTML (single file), PDF and text, with header, footer, logo and an environment appendix.
+- **Review editor:** delete, exclude, reorder (also in blocks, to top/bottom), merge and duplicate steps, edit captions, add a comment under any step, add section headings and Note / Warning / Tip callouts, draw boxes, arrows, text and numbered call-outs on the pictures, switch between friendly and technical wording, and mask anything you missed after the fact.
+- **Export:** Markdown, DOCX, HTML (single file), PDF and text, a tick-box Runbook checklist with a verification log, and a ZIP bundle (Markdown plus pictures) for wikis and tickets; with header, footer, logo and an environment appendix.
+- **Portable mode** (`portable.txt` next to the program) and an optional, off-by-default update check.
 - **Support mode:** a one-button recorder for end users that produces a single ZIP (one-sheet HTML report, steps, system and network details) to send to IT.
 - **Toolbar:** icon mini-bar with on-screen overlays showing what is captured and masked, saved presets, hotkeys, optional tray icon, and a built-in Help / About window (F1).
 - **Safe by design:** the session is autosaved after every step, so a crash loses nothing.
@@ -68,6 +71,7 @@ python -m pip install pystray                      # tray icon
 | Ctrl+Shift+F7 | add a note, warning or tip |
 | Ctrl+Shift+F8 | take a screenshot now |
 | Ctrl+Shift+F6 | delete the last step |
+| Ctrl+Shift+F5 | comment on the next step |
 | F1 | help |
 
 Hotkeys can be changed in Options.
@@ -79,7 +83,7 @@ Documents\Telestep\<yyyymmdd_hhmmss>_<title>\
     session.json        all steps and settings (autosaved)
     raw\                screenshots without markers (masks already applied)
     images\             annotated copies, rebuilt on every export
-    steps.md / .docx / .html / .pdf / .txt
+    steps.md / .docx / .html / .pdf / .txt   runbook.md   steps_bundle.zip
     environment.txt
 ```
 
@@ -175,7 +179,9 @@ on each PC that needs OCR redaction.
 | `telestep_report.py` | Markdown, DOCX, HTML, PDF and text export |
 | `telestep_review.py` | review and edit window |
 | `telestep_widgets.py` | icons, overlays, dialogs |
-| `telestep_settings.py` | saved settings and presets |
+| `telestep_settings.py` | saved settings, presets, portable mode |
+| `telestep_privacy.py` | the "check for private information before export" scan and dialog |
+| `telestep_update.py` | the optional update check (the only network use) |
 | `telestep_support.py` | Support mode (one-click recorder that produces a ZIP for IT) |
 | `telestep_help.py` | Help, About and License window |
 | `HELP.md` | end-user guide shown in the Help window (bundled in the exe) |

@@ -598,18 +598,23 @@ class Mask:
     title: str = ""
     style: str = "solid"
     label: str = ""
+    frac: tuple = None  # with `title`: only this part of the window, as fractions (l, t, r, b) of its size
 
     def to_dict(self):
         return {"rect": list(self.rect) if self.rect else None, "title": self.title,
-                "style": self.style, "label": self.label}
+                "style": self.style, "label": self.label, "frac": list(self.frac) if self.frac else None}
 
     @classmethod
     def from_dict(cls, d):
-        r = d.get("rect")
-        return cls(tuple(r) if r else None, d.get("title", ""), canon_style(d.get("style", "solid")), d.get("label", ""))
+        r, f = d.get("rect"), d.get("frac")
+        return cls(tuple(r) if r else None, d.get("title", ""), canon_style(d.get("style", "solid")), d.get("label", ""),
+                   tuple(f) if f and len(f) == 4 else None)
 
     def describe(self):
         st = MASK_STYLES.get(self.style, self.style).split(" (")[0]
+        if self.frac and self.title:
+            l, t, r, b = self.frac
+            return f"Part of window \"{self.title}\" ({round(l * 100)}-{round(r * 100)}% across, {round(t * 100)}-{round(b * 100)}% down)  -  {st}"
         if self.rect:
             l, t, r, b = self.rect
             return f"Area {r - l}x{b - t} at {l},{t}  -  {st}"
@@ -688,8 +693,12 @@ def apply_masks(img, box, masks, window_finder=find_windows):
     Window masks are looked up at call time so they follow the window."""
     for m in masks:
         rects = [m.rect] if m.rect else window_finder(m.title)
+        if m.frac and not m.rect:  # a part of the window, measured as fractions so it survives resizing
+            fl, ft, fr, fb = m.frac
+            rects = [(w[0] + (w[2] - w[0]) * fl, w[1] + (w[3] - w[1]) * ft, w[0] + (w[2] - w[0]) * fr,
+                      w[1] + (w[3] - w[1]) * fb) for w in rects]
         for r in rects:
-            c = _intersect(_box(*r), box)
+            c = _intersect(_box(*[int(round(v)) for v in r]), box)
             if c:
                 l, t = c["left"] - box["left"], c["top"] - box["top"]
                 label = m.label or ("Hidden" if canon_style(m.style) == "soft" else "")
@@ -704,8 +713,12 @@ OCR_PATTERNS = {
     "mac": re.compile(r"^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$"),
     "key": re.compile(r"^(?:[A-Za-z0-9+/=_-]{28,}|[0-9A-Fa-f]{24,}|(?:[A-Z0-9]{4,6}-){3,}[A-Z0-9]{4,6})$"),
     "email": re.compile(r"^[\w.+-]+@[\w-]+(?:\.[\w-]+)+$"),
+    "card": re.compile(r"^(?:\d{4}[- ]?){3}\d{1,4}$|^\d{13,19}$"),
+    "ssn": re.compile(r"^\d{3}-\d{2}-\d{4}$"),
 }
-OCR_LABELS = {"ip": "IP addresses", "mac": "MAC addresses", "key": "Keys / long tokens", "email": "E-mail addresses"}
+OCR_LABELS = {"ip": "IP addresses", "mac": "MAC addresses", "key": "Keys / long tokens", "email": "E-mail addresses",
+              "card": "Card-like numbers", "ssn": "ID numbers (123-45-6789)"}
+COMMON_SECRETS = ("ip", "mac", "key", "email", "card", "ssn")  # the "Hide common secrets" preset
 
 
 class OcrUnavailable(RuntimeError):
@@ -1017,3 +1030,45 @@ def _badge(d, img, bx, by, n, s):
     by = min(max(br, by), img.height - br)
     d.ellipse([bx - br, by - br, bx + br, by + br], fill=RED)
     d.text((bx, by), str(n), fill="white", font=get_font(18 * s, bold=True), anchor="mm")
+
+
+# ---------------------------------------------------------------------------
+# your own mark-up (boxes, arrows, text, numbered call-outs), stored per step and drawn after the click marker
+# ---------------------------------------------------------------------------
+MARK_COLOR = (21, 101, 192)
+MARK_TOOLS = ("box", "arrow", "text", "num")
+
+
+def draw_marks(img, marks):
+    """Draw hand-made annotations on `img` (in place).  Each mark: {'t': box|arrow|text|num, 'p': [x0, y0, x1, y1] in
+    image pixels, 'text': str, 'n': int}.  Unknown or malformed entries are skipped."""
+    if not marks:
+        return img
+    d = ImageDraw.Draw(img)
+    s = max(0.8, img.width / 1400)
+    for m in marks:
+        try:
+            t, p = m.get("t"), [float(v) for v in m.get("p", [])]
+            if t == "box" and len(p) == 4:
+                l, tp, r, b = min(p[0], p[2]), min(p[1], p[3]), max(p[0], p[2]), max(p[1], p[3])
+                d.rectangle([l, tp, r, b], outline=MARK_COLOR, width=max(3, int(4 * s)))
+            elif t == "arrow" and len(p) == 4:
+                _arrow(d, (p[0], p[1]), (p[2], p[3]), s, MARK_COLOR, max(3, int(5 * s)))
+            elif t == "text" and len(p) >= 2 and str(m.get("text", "")).strip():
+                font = get_font(20 * s, bold=True)
+                txt = str(m["text"]).strip()
+                bb = d.multiline_textbbox((p[0], p[1]), txt, font=font)
+                pad = 6 * s
+                x0, y0 = min(max(0, bb[0] - pad), max(0, img.width - (bb[2] - bb[0]) - 2 * pad)), max(0, bb[1] - pad)
+                dx, dy = x0 + pad - bb[0], y0 + pad - bb[1]
+                d.rounded_rectangle([x0, y0, bb[2] + dx + pad, bb[3] + dy + pad], radius=6 * s, fill=(255, 255, 255),
+                                    outline=MARK_COLOR, width=max(2, int(3 * s)))
+                d.multiline_text((p[0] + dx, p[1] + dy), txt, fill=(13, 71, 161), font=font)
+            elif t == "num" and len(p) >= 2:
+                br = 16 * s
+                d.ellipse([p[0] - br, p[1] - br, p[0] + br, p[1] + br], fill=MARK_COLOR, outline="white",
+                          width=max(2, int(2 * s)))
+                d.text((p[0], p[1]), str(m.get("n", "")), fill="white", font=get_font(20 * s, bold=True), anchor="mm")
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return img
