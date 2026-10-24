@@ -64,7 +64,17 @@ class Overlay(private val service: RecorderService) {
         view.invalidate()
     }
 
-    fun screenRect(): Rect? = if (shown) Rect(params.x, params.y, params.x + size, params.y + size) else null
+    /**
+     * Where the button really is on screen (what the screenshots show).  Not params.x/y: Android places the window
+     * below the status bar and keeps it inside the screen, so the requested position can be well off.
+     */
+    fun screenRect(): Rect? {
+        if (!shown || !view.isAttachedToWindow) return null
+        val at = IntArray(2)
+        view.getLocationOnScreen(at)
+        val pad = size / 8  // the antialiased edge
+        return Rect(at[0] - pad, at[1] - pad, at[0] + view.width + pad, at[1] + view.height + pad)
+    }
 
     private inner class Drag : View.OnTouchListener {
         private val slop = ViewConfiguration.get(service).scaledTouchSlop
