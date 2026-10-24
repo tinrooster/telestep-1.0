@@ -30,6 +30,30 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageStat  # noqa: E40
 VERSION = "1.0"
 
 
+def _no_console_windows():
+    """Telestep is a window-only program, but the helper programs it starts (Tesseract for OCR, ipconfig in Support
+    mode) are console programs: each one can flash a black window, and OCR starts several per click.  Ask Windows not
+    to create a console for any child process we start."""
+    import subprocess
+    import sys
+    flag = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if sys.platform != "win32" or not flag or getattr(subprocess.Popen, "_telestep_quiet", False):
+        return
+    real = subprocess.Popen
+
+    class QuietPopen(real):
+        _telestep_quiet = True
+
+        def __init__(self, *a, **kw):
+            kw["creationflags"] = kw.get("creationflags", 0) | flag
+            super().__init__(*a, **kw)
+
+    subprocess.Popen = QuietPopen
+
+
+_no_console_windows()
+
+
 # ---------------------------------------------------------------------------
 # text / name helpers
 # ---------------------------------------------------------------------------

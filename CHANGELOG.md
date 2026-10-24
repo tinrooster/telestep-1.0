@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- No more flashing black windows while recording: the helper programs Telestep starts (Tesseract for OCR, ipconfig in Support mode) are now started without a console window.
 - Icon toolbar is screen-edge aware: it can't be dropped partly off the screen, and when expanded next to any edge (right, bottom) it opens inward and returns to its spot afterwards; the badge also slides inward when the record dot and microphone indicator widen it during recording.
 - Share-safe copy: Review > More > "Save a share-safe copy (ZIP)..." packs only the exported files, their pictures and (optionally) the voice notes - never the original screenshots, the full narration or the session data. "Delete original screenshots and full narration..." removes the clean originals once you've exported (hide/marks/re-cut then switch off; captions and exports still work).
 - Crash-safe narration: the microphone is streamed to disk while recording, so a crash or power loss no longer loses the voice; the next time the recording is opened Telestep rebuilds the narration and the voice notes.
