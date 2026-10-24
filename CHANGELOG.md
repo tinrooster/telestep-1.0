@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Icon toolbar: minimize the toolbar to a small always-on-top icon (button on the toolbar, right-click menu, or Settings > Options). Pointing at it expands Record / Pause / Stop and a Settings button (which shows the full toolbar and returns to the icon when Settings is collapsed); the icon shows idle / recording / paused. Drag to move. Right-click > Full toolbar leaves icon mode.
+- INSTALL.md: install, build and troubleshooting guide.
+- HELP.md: troubleshooting entries tidied.
+
 - Options: toolbar opacity slider (30-100%), applied only while Settings is collapsed, optionally solid while the pointer is over the toolbar. Saved with the settings.
 
 - Build scripts: `--noupx` and `--exclude-module numpy/pandas/setuptools/pkg_resources` (a normal Python install was pulling them into the exe), and a note to build from a clean virtual environment.

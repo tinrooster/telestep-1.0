@@ -37,7 +37,7 @@ KEYS = {"Mouse only - no keyboard hook at all": "none", "Count typed characters 
         "Record typed text (never passwords)": "text"}
 ICON_COLORS = {"record": "#e53935", "pause": "#f59e0b", "resume": "#2e9e4f", "stop": "#b71c1c", "note": "#1e88e5",
                "camera": "#00897b", "review": "#5e35b1", "folder": "#8d6e63", "gear": "#546e7a",
-               "help": "#0277bd"}
+               "help": "#0277bd", "minimize": "#546e7a"}
 
 
 def _inv(d, value):
@@ -220,6 +220,10 @@ class App:
         self.var_solid_hover = tk.BooleanVar(value=d.get("toolbar_solid_hover", True))
         self._adjusting_opacity = False
         self._hover = False
+        self.var_compact = tk.BooleanVar(value=bool(d.get("compact_toolbar", False)))
+        self._compact_on, self._expanded = False, False  # icon mode shown / expanded under the pointer
+        self._leave_t, self._cx0, self._cy0, self._drag = 0.0, None, None, None
+        self._badges = {}
         self.var_hk = {k: tk.StringVar(value=d["hotkeys"].get(k, cfg.DEFAULT_HOTKEYS[k])) for k in cfg.DEFAULT_HOTKEYS}
         self.var_cfg = tk.BooleanVar(value=False)
         self.var_scope = tk.StringVar(value="")
@@ -231,7 +235,7 @@ class App:
         self.icons = {k: (w.make_icon(k, c, isz), w.make_icon(k, "#b8b8b8", isz)) for k, c in ICON_COLORS.items()}
 
         self.tray = Tray(self)
-        main = ttk.Frame(root, padding=(6, 4))
+        main = self.main = ttk.Frame(root, padding=(6, 4))
         main.grid(sticky="nsew")
         main.columnconfigure(0, weight=1)
         bar = ttk.Frame(main)
@@ -252,6 +256,8 @@ class App:
         self.btn_review = self._icon_btn(bar, "review", "Review, edit and export a recording (pick from a list)", self.open_review,
                                          side="right")
         self.btn_help = self._icon_btn(bar, "help", "Help and About (F1)", self.open_help, side="right")
+        self.btn_mini = self._icon_btn(bar, "minimize", "Minimize to an icon",
+                                       self.enter_compact, side="right")
         self.lbl_toast = ttk.Label(main, textvariable=self.var_toast, foreground="#b45309",
                                    wraplength=int(360 * self.scale), justify="left")
 
@@ -261,6 +267,7 @@ class App:
         self.lbl_summary.bind("<Button-1>", lambda e: (self.var_cfg.set(True), self.toggle_config()))
         w.Tip(self.lbl_summary, "What the next recording will use. Click to change it in Settings.")
 
+        self._build_compact()
         self.cfg = ttk.Frame(main, padding=(0, 8, 0, 0))
         ttk.Style(self.root).layout("Plain.TNotebook.Tab", [])  # our own, clearer tab strip is drawn instead
         self.nb = ttk.Notebook(self.cfg, style="Plain.TNotebook")
@@ -293,6 +300,7 @@ class App:
         self.place_toolbar()
         self.apply_capture_exclusion()
         self._apply_opacity()
+        self._sync_mode()
         if self.var_tray.get():
             self.tray.start()
         self.poll()
@@ -463,6 +471,11 @@ class App:
             self.chk_closetray.state(["disabled"])
             ttk.Label(tr, text="(pip install pystray)", foreground="gray").grid(row=0, column=2, sticky="w", padx=6)
         tr.grid(row=4, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(t, text="Minimize the toolbar to an icon", variable=self.var_compact,
+                        command=self._sync_mode).grid(row=8, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Label(t, text="Takes effect when Settings is collapsed.",
+                  foreground="gray", wraplength=int(330 * self.scale), justify="left"
+                  ).grid(row=9, column=0, columnspan=2, sticky="w")
         op = ttk.Frame(t)
         op.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         ttk.Label(op, text="Toolbar opacity").grid(row=0, column=0, sticky="w")
@@ -580,6 +593,172 @@ class App:
         w.exclude_from_capture(self.root, self.var_hide.get())
         self.overlays.apply_affinity()
 
+    # ------------------------------------------------------------------ icon (compact) toolbar
+    def _build_compact(self):
+        """A tiny always-on-top badge that grows into Record / Pause / Stop while the pointer is on it."""
+        self.cframe = ttk.Frame(self.root, padding=2, relief="solid", borderwidth=1)
+        self.c_icon = ttk.Label(self.cframe, cursor="fleur")
+        self.c_icon.grid(row=0, column=0, padx=2, pady=2)
+        self.c_ctl = ttk.Frame(self.cframe)
+        self.cbtn_rec = self._icon_btn(self.c_ctl, "record", "Record (start a new session)", self.start)
+        self.cbtn_pause = self._icon_btn(self.c_ctl, "pause", "Pause / resume", self.toggle_pause)
+        self.cbtn_stop = self._icon_btn(self.c_ctl, "stop", "Stop and save", self.stop)
+        ttk.Separator(self.c_ctl, orient="vertical").pack(side="left", fill="y", padx=3, pady=2)
+        self.cbtn_settings = self._icon_btn(self.c_ctl, "gear", "Settings", self.show_settings)
+        for wd in (self.cframe, self.c_icon):  # drag the badge to move it
+            wd.bind("<ButtonPress-1>", self._c_press)
+            wd.bind("<B1-Motion>", self._c_drag)
+
+    def _badge(self, state):
+        """Idle: the Telestep icon.  Recording: a red tile with a white dot.  Paused: an amber tile with a pause sign."""
+        if state not in self._badges:
+            from PIL import Image, ImageDraw, ImageTk
+            size = round(26 * self.scale)
+            S = size * 4
+            if state in ("rec", "paused"):
+                img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+                d = ImageDraw.Draw(img)
+                d.rounded_rectangle([0, 0, S - 1, S - 1], radius=S * 0.22,
+                                    fill=(229, 57, 53, 255) if state == "rec" else (245, 158, 11, 255))
+                if state == "rec":
+                    d.ellipse([S * .28, S * .28, S * .72, S * .72], fill=(255, 255, 255, 255))
+                else:
+                    for x0 in (.30, .55):
+                        d.rounded_rectangle([S * x0, S * .26, S * (x0 + .15), S * .74], radius=S * .03,
+                                            fill=(255, 255, 255, 255))
+                base = img.resize((size, size), Image.LANCZOS)
+            else:
+                try:
+                    import telestep_help
+                    base = Image.open(telestep_help.logo_path(small=True)).convert("RGBA").resize((size, size), Image.LANCZOS)
+                except Exception:
+                    base = Image.new("RGBA", (size, size), (30, 90, 168, 255))
+            self._badges[state] = ImageTk.PhotoImage(base)
+        return self._badges[state]
+
+    def _compact_refresh(self):
+        self.c_icon.configure(image=self._badge(self.state if self.state in ("rec", "paused") else "idle"))
+        idle = self.state == "idle"
+        self._enable(self.cbtn_rec, idle)
+        self._enable(self.cbtn_pause, not idle)
+        self._enable(self.cbtn_stop, not idle)
+        self._set_icon(self.cbtn_pause, "resume" if self.state == "paused" else "pause")
+
+    def enter_compact(self):
+        if self.var_cfg.get():  # Settings must be collapsed first
+            self.var_cfg.set(False)
+            self.toggle_config()
+        self.var_compact.set(True)
+        self._sync_mode()
+
+    def show_settings(self):
+        """Open Settings from the icon bar: the full toolbar shows while Settings is open, and the icon comes back
+        when it is collapsed (the icon-mode choice itself is not changed)."""
+        self.var_cfg.set(True)
+        self.toggle_config()
+
+    def leave_compact(self):
+        self.var_compact.set(False)
+        self._sync_mode()
+
+    def _monitor_at(self, x, y):
+        for m in self.screens[1:]:
+            if m["left"] <= x < m["left"] + m["width"] and m["top"] <= y < m["top"] + m["height"]:
+                return m
+        return None
+
+    def _sync_mode(self):
+        """Show the icon toolbar (compact) or the full one.  Settings open always means the full toolbar."""
+        want = bool(self.var_compact.get() and not self.var_cfg.get())
+        if want == self._compact_on:
+            return
+        if self._compact_on and self._cx0 is not None:
+            x, y = self._cx0, self._cy0  # where the icon sat, not where the expanded bar was pushed to
+        else:
+            x, y = self.root.winfo_x(), self.root.winfo_y()
+        visible = self.root.state() == "normal"
+        if visible:
+            self.root.withdraw()  # Windows only applies a style change like this to a hidden window
+        self._expanded = False
+        if want:
+            self.main.grid_remove()
+            self.c_ctl.grid_remove()
+            self.cframe.grid(row=0, column=0, sticky="nsew")
+            self.root.overrideredirect(True)
+        else:
+            self.cframe.grid_remove()
+            self.main.grid(row=0, column=0, sticky="nsew")
+            self.root.overrideredirect(False)
+        self._compact_on = want
+        self.root.update_idletasks()
+        m = self._monitor_at(x, y)
+        if m and not want:  # keep the full toolbar on screen
+            x = max(m["left"], min(x, m["left"] + m["width"] - self.root.winfo_reqwidth() - 2))
+        self.root.geometry(f"+{int(x)}+{int(y)}")
+        self._cx0, self._cy0 = int(x), int(y)
+        if visible:
+            self.root.deiconify()
+        try:
+            self.root.attributes("-topmost", True)
+            if not want:
+                self.root.attributes("-toolwindow", True)
+        except tk.TclError:
+            pass
+        self.apply_capture_exclusion()  # the window may have been re-created: re-apply what Windows forgot
+        self._apply_opacity()
+        self._compact_refresh()
+        self.root.update_idletasks()
+        self._toolbar_moved()
+
+    def _expand_compact(self, on):
+        if not self._compact_on or on == self._expanded:
+            return
+        self._expanded = on
+        if on:
+            self.c_ctl.grid(row=0, column=1, padx=(2, 0))
+        else:
+            self.c_ctl.grid_remove()
+        self.root.update_idletasks()
+        x, y = self._cx0, self._cy0
+        if on:
+            m = self._monitor_at(x, y)
+            if m:  # near the right edge it grows leftwards instead of off the screen
+                x = min(x, m["left"] + m["width"] - self.root.winfo_reqwidth() - 2)
+        self.root.geometry(f"+{int(x)}+{int(y)}")
+        self.root.update_idletasks()
+        self._toolbar_moved()
+
+    def _toolbar_moved(self):
+        """The window's rectangle changed: clicks on it must stay out of the recording straight away."""
+        self.toolbar_rect = w.window_screen_rect(self.root)
+        if self.rec:
+            self.rec.ignore_rects = [self.toolbar_rect] if self.toolbar_rect else []
+
+    def _c_press(self, e):
+        self._drag = (e.x_root - self.root.winfo_x(), e.y_root - self.root.winfo_y())
+
+    def _c_drag(self, e):
+        if not self._drag:
+            return
+        x, y = e.x_root - self._drag[0], e.y_root - self._drag[1]
+        self.root.geometry(f"+{int(x)}+{int(y)}")
+        self._cx0, self._cy0 = int(x), int(y)
+
+    def _compact_hover(self, hover):
+        """Expand while the pointer is on the badge; shrink back a moment after it leaves."""
+        if not self._compact_on:
+            return
+        if hover:
+            self._leave_t = 0.0
+            self._expand_compact(True)
+        elif self._expanded:
+            now = time.monotonic()
+            if not self._leave_t:
+                self._leave_t = now
+            elif now - self._leave_t > 0.6:
+                self._leave_t = 0.0
+                self._expand_compact(False)
+
     def _opacity_dragged(self, value):
         self.var_opacity.set(int(round(float(value) / 5.0) * 5))  # steps of 5%
         self._apply_opacity()
@@ -633,7 +812,7 @@ class App:
             "sound": self.var_sound.get(), "tray": self.var_tray.get(), "hide_in_tray": self.var_hidetray.get(),
             "close_to_tray": self.var_closetray.get(),
             "hide_from_capture": self.var_hide.get(), "overlays": self.var_overlay.get(),
-            "toolbar_opacity": self.var_opacity.get(), "toolbar_solid_hover": self.var_solid_hover.get(),
+            "toolbar_opacity": self.var_opacity.get(), "compact_toolbar": self.var_compact.get(), "toolbar_solid_hover": self.var_solid_hover.get(),
             "toolbar_pos": self.data.get("toolbar_pos"), "presets": self.data.get("presets", {}),
         })
         return d
@@ -670,9 +849,12 @@ class App:
             var.set(d[key])
         self.var_opacity.set(max(30, min(100, int(d.get("toolbar_opacity", 100)))))
         self.var_solid_hover.set(d.get("toolbar_solid_hover", True))
+        self.var_compact.set(bool(d.get("compact_toolbar", False)))
         if hasattr(self, "scale_opacity"):
             self.scale_opacity.set(self.var_opacity.get())
             self._apply_opacity()
+        if hasattr(self, "cframe"):
+            self._sync_mode()
         self.var_keys.set(_inv(KEYS, d["key_mode"]))
         self.var_mstyle.set(core.MASK_STYLES[core.canon_style(d["mask_style"])])
         for k, v in self.var_ocr.items():
@@ -752,7 +934,8 @@ class App:
             self._pos_seen, self._pos_changed = pos, time.monotonic()
         elif self._pos_changed and time.monotonic() - self._pos_changed > 1.0:
             self._pos_changed = 0.0
-            if self.data.get("toolbar_pos") != list(pos) and self.root.state() == "normal":
+            if (self.data.get("toolbar_pos") != list(pos) and self.root.state() == "normal"
+                    and not self._expanded):  # an expanded icon may have been pushed off its spot
                 self.data["toolbar_pos"] = list(pos)
                 cfg.save(self.data, self.settings_path)
 
@@ -781,6 +964,8 @@ class App:
                 self._enable(wd, idle)
         self._enable(self.btn_area, idle and self.current_mode()[0] == "region")
         self._ocr_sync()
+        if hasattr(self, "c_icon"):
+            self._compact_refresh()
         self.tray.set_state(state)
         self.update_summary()
 
@@ -800,6 +985,7 @@ class App:
             self.refresh_screens()
         else:
             self.cfg.grid_remove()
+        self._sync_mode()
         self._apply_opacity()
         self.update_summary()
         self.root.update_idletasks()
@@ -1146,6 +1332,8 @@ class App:
                 m.add_command(label="Review the last recording", command=lambda: self.open_review(self.last_session))
         m.add_command(label="Show recordings folder in File Explorer", command=self.open_folder)
         m.add_separator()
+        m.add_command(label="Full toolbar" if self._compact_on else "Minimize to an icon",
+                      command=self.leave_compact if self._compact_on else self.enter_compact)
         m.add_command(label="Hide settings" if self.var_cfg.get() else "Show settings",
                       command=lambda: (self.var_cfg.set(not self.var_cfg.get()), self.toggle_config()))
         m.add_command(label="Help", accelerator="F1", command=self.open_help)
@@ -1282,11 +1470,12 @@ class App:
                                   else "Tesseract is not installed, so the OCR options do nothing yet (see README).")
             self._ocr_result = None
         self.toolbar_rect = w.window_screen_rect(self.root)
-        if self.var_opacity.get() < 100:
+        if self.var_opacity.get() < 100 or self._compact_on:
             hover = self.over_toolbar(core.cursor_pos())
             if hover != self._hover:
                 self._hover = hover
                 self._apply_opacity()
+            self._compact_hover(hover)
         rec = self.rec
         self._handle_events()
         rec = self.rec

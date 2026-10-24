@@ -104,6 +104,9 @@ def make_icon(kind, color, size=20):
                     (c + math.cos(a) * f(.43), c + math.sin(a) * f(.43))], fill=color, width=int(f(.15)))
         d.ellipse([f(.2), f(.2), f(.8), f(.8)], fill=color)
         d.ellipse([f(.38), f(.38), f(.62), f(.62)], fill=(0, 0, 0, 0))
+    elif kind == "minimize":  # a window shrinking into its bottom-left corner
+        d.rounded_rectangle([f(.1), f(.1), f(.9), f(.9)], radius=f(.1), outline=color, width=int(f(.08)))
+        d.rounded_rectangle([f(.2), f(.52), f(.48), f(.8)], radius=f(.04), fill=color)
     return ImageTk.PhotoImage(img.resize((size, size), Image.LANCZOS))
 
 

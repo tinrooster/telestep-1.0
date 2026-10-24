@@ -35,6 +35,8 @@ Nothing leaves your computer: no cloud service, no account, no upload.
 
 ## Install
 
+Full steps (run from source, build the exe, build the Support package, optional extras, troubleshooting): **[INSTALL.md](INSTALL.md)**. In short:
+
 ```
 git clone https://gitlab.com/ac-pcr1/telestep.git
 cd telestep
@@ -165,6 +167,7 @@ on each PC that needs OCR redaction.
 
 | File | Purpose |
 |---|---|
+| `INSTALL.md` | installation, build and troubleshooting guide |
 | `telestep.py` | toolbar (main entry point) |
 | `telestep_recorder.py` | recording engine and command line |
 | `telestep_core.py` | Windows helpers, hotkeys, masks, OCR, annotation |

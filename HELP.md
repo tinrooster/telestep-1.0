@@ -81,6 +81,12 @@ permanently changes the saved screenshot(s), so it is not undone by closing the 
 - **Recordings folder (folder icon):** opens File Explorer on the recordings folder, for grabbing the exported files
   (Word, PDF, ...) or the screenshots. It doesn't open anything in Telestep.
 
+## Icon toolbar
+
+The **minimize** button on the toolbar (or right-click > *Minimize to an icon*, or Settings > Options) shrinks the toolbar to a small icon that stays on top of your windows. Point at it for **Record / Pause / Stop** and a **Settings** button; move away and it shrinks back. The icon shows the state: the Telestep logo when idle, a red tile with a white dot while recording, an amber tile with a pause sign while paused. Drag it to move it.
+
+Settings opens the full toolbar; when you collapse Settings (the ▲ button) you are back to the icon. To leave icon mode altogether, right-click the icon and choose *Full toolbar*. Clicks on the icon are never recorded.
+
 ## Toolbar opacity
 
 Settings > Options > Toolbar opacity makes the toolbar see-through (30-100%). It only applies while Settings is collapsed; with Settings open the toolbar is solid (while you drag the slider you see the chosen level). With "Solid while the pointer is over it" ticked it also becomes fully solid when you point at it.
@@ -119,9 +125,9 @@ open that folder. If you close the window with changes that haven't been exporte
 
 ## Troubleshooting
 
-**Toolbar says "Catching up"** - processing (mostly OCR redaction) is behind your clicks. At 25 waiting clicks Telestep warns you; at 60 it stops taking new clicks until it has caught up, so memory doesn't fill up. Pause between clicks, or turn off OCR redaction you don't need. a slow or frozen window
-If the toolbar ever freezes for more than a few seconds, Telestep writes where it was stuck to `telestep_debug.log` next to
-the settings file (it is deleted on a clean exit when nothing was logged). Send that file along with a description.
+**Toolbar says "Catching up"** - processing (mostly OCR redaction) is behind your clicks. At 25 waiting clicks Telestep warns you; at 60 it stops taking new clicks until it has caught up, so memory doesn't fill up. Pause between clicks, or turn off OCR redaction you don't need.
+
+**A slow or frozen window** - Telestep keeps a log, `telestep_debug.log` next to the settings file (About > Open the log folder). It notes each run and recording, every slow step with where the time went, and where the window was stuck if it ever froze for more than a few seconds. Send that file along with a description.
 
 ## Right-click menus
 - **Step list (review editor):** edit or copy the caption, reset it to automatic wording, move up/down, leave out of the report or put back,
@@ -129,7 +135,7 @@ the settings file (it is deleted on a clean exit when nothing was logged). Send 
 - **Picture (review editor):** *Select the clicked control* outlines the control you clicked (then choose a style or press
   **Hide this area**); *Hide selected area as...* hides it straight away in the style you pick; *...on every screenshot*;
   switch Before/After; leave out or delete the step.
-- **Toolbar:** record/pause/stop, add a note, take a screenshot, open a saved recording, show the recordings folder, settings,
+- **Toolbar:** record/pause/stop, add a note, take a screenshot, open a saved recording, show the recordings folder, minimize to an icon, settings,
   Help, About, hide to tray, Quit.
 
 ## Support mode
