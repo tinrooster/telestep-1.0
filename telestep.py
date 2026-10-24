@@ -867,6 +867,26 @@ class App:
                 return m
         return None
 
+    def _nearest_monitor(self, x, y):
+        """The monitor under (x, y), or the closest one when the point is off every screen."""
+        m = self._monitor_at(x, y)
+        if m or len(self.screens) < 2:
+            return m
+        def dist(mm):
+            dx = max(mm["left"] - x, 0, x - (mm["left"] + mm["width"]))
+            dy = max(mm["top"] - y, 0, y - (mm["top"] + mm["height"]))
+            return dx * dx + dy * dy
+        return min(self.screens[1:], key=dist)
+
+    def _on_screen(self, x, y, w, h):
+        """(x, y) moved the least needed so a w x h window lies fully on the nearest monitor."""
+        m = self._nearest_monitor(x + 8, y + 8)
+        if not m:
+            return x, y
+        x = max(m["left"], min(x, m["left"] + m["width"] - w - 2))
+        y = max(m["top"], min(y, m["top"] + m["height"] - h - 2))
+        return x, y
+
     def _sync_mode(self):
         """Show the icon toolbar (compact) or the full one.  Settings open always means the full toolbar."""
         want = bool(self.var_compact.get() and not self.var_cfg.get())
@@ -920,10 +940,8 @@ class App:
             self.c_ctl.grid_remove()
         self.root.update_idletasks()
         x, y = self._cx0, self._cy0
-        if on:
-            m = self._monitor_at(x, y)
-            if m:  # near the right edge it grows leftwards instead of off the screen
-                x = min(x, m["left"] + m["width"] - self.root.winfo_reqwidth() - 2)
+        if on:  # near any edge it grows the other way instead of off the screen
+            x, y = self._on_screen(x, y, self.root.winfo_reqwidth(), self.root.winfo_reqheight())
         self.root.geometry(f"+{int(x)}+{int(y)}")
         self.root.update_idletasks()
         self._toolbar_moved()
@@ -941,6 +959,8 @@ class App:
         if not self._drag:
             return
         x, y = e.x_root - self._drag[0], e.y_root - self._drag[1]
+        if self._compact_on:  # the icon can't be dropped partly off the screen
+            x, y = self._on_screen(x, y, self.root.winfo_width(), self.root.winfo_height())
         self.root.geometry(f"+{int(x)}+{int(y)}")
         self._cx0, self._cy0 = int(x), int(y)
 
