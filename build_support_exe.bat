@@ -7,12 +7,15 @@ rem and edit it).  If it isn't there, the example is used.  The file is copied i
 rem
 rem Why a folder (--onedir) and not one exe: a single self-extracting exe is flagged by antivirus / SmartScreen far more
 rem often.  The user extracts the zip and runs Telestep-Support.exe.  The "Support" in the name selects Support mode.
+rem
+rem For a smaller, repeatable build (and fewer antivirus flags) run this from a clean virtual environment holding only requirements.txt + pyinstaller. --noupx and --exclude-module keep UPX and unused packages (numpy, pandas, setuptools) out.
 cd /d "%~dp0"
 set NAME=Telestep-Support
 if exist "dist\%NAME%" rmdir /s /q "dist\%NAME%"
 if exist "dist\%NAME%.zip" del /q "dist\%NAME%.zip"
 
 pyinstaller --onedir --noconfirm --windowed --name %NAME% --icon assets\telestep.ico ^
+  --noupx --exclude-module numpy --exclude-module pandas --exclude-module setuptools --exclude-module pkg_resources ^
   --collect-all uiautomation --collect-data docx --collect-data reportlab ^
   --add-data "HELP.md;." --add-data "LICENSE;." --add-data "THIRD_PARTY_NOTICES.md;." ^
   --add-data "assets\telestep_logo_256.png;assets" --add-data "assets\telestep_icon_64.png;assets" ^

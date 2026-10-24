@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Build scripts: `--noupx` and `--exclude-module numpy/pandas/setuptools/pkg_resources` (a normal Python install was pulling them into the exe), and a note to build from a clean virtual environment.
+
 - Hide styles simplified: removed Hatched and Frosted glass; added Pixelated (fine), Blurred and Blurred (heavy) (real Gaussian blur that blends with its surroundings). Old settings and sessions that used the removed styles open as Soft gray / Blurred.
 
 - Privacy tab: one "Use OCR" switch turns OCR redaction and click labelling on or off while keeping your ticked options (they grey out when it is off). It is saved with the settings and shown in the toolbar summary.
