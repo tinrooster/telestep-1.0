@@ -41,6 +41,12 @@ double_click_time = backend.double_click_time  # () -> seconds
 is_admin = backend.is_admin                    # () -> bool
 app_details = backend.app_details              # (pid) -> {'app', 'name', 'version', 'elevated'}
 
+# UI elements: element_inspector() is a context manager for the worker thread; it yields None when unavailable, or an
+# inspector with element_at(x, y) -> element (.name .kind .rect .pid .is_password() .parent()) or None, and
+# dialog_info(hwnd) -> (texts, button_count, element_count)
+element_inspector = backend.element_inspector
+DIALOG_CLASSES = backend.DIALOG_CLASSES        # window classes (`cls` in window_info) that are dialogs / message boxes
+
 # hotkeys and single instance
 HotkeyListener = backend.HotkeyListener        # (bindings).start() / .stop(); .failed, .registered
 single_instance = backend.single_instance      # (name) -> True if we are the only copy

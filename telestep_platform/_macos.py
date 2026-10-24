@@ -8,8 +8,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from ._generic import (EMPTY_INFO, HotkeyListener, app_details, cursor_pos, exclude_from_capture,  # noqa: F401
-                       foreground_info, frame_rect, is_admin, list_windows, make_click_through, own_process_active,
+from ._generic import (DIALOG_CLASSES, EMPTY_INFO, HotkeyListener, app_details, cursor_pos, exclude_from_capture,  # noqa: F401
+                       element_inspector, foreground_info, frame_rect, is_admin, list_windows, make_click_through, own_process_active,
                        parse_hotkey, quiet_subprocesses, set_dpi_aware, tell_already_running, widget_screen_rect,
                        window_info, window_rect, work_area_at)
 

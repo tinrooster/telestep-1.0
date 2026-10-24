@@ -2,6 +2,7 @@
 
 Window and process lookups report no window, hotkeys don't register, and the single-instance check never blocks.
 Opening files uses the desktop's default handler (xdg-open)."""
+import contextlib
 import os
 import subprocess
 from pathlib import Path
@@ -10,6 +11,7 @@ from .common import EMPTY_INFO, parse_hotkey  # noqa: F401  (parse_hotkey: same 
 
 NAME = "generic"
 OPENER = "xdg-open"
+DIALOG_CLASSES = set()
 
 
 def set_dpi_aware():
@@ -66,6 +68,14 @@ def is_admin():
 
 def app_details(pid):
     return {"app": "", "name": "", "version": "", "elevated": None}
+
+
+
+# --- UI elements
+@contextlib.contextmanager
+def element_inspector():
+    """No element lookup here: clicks are described by their window instead."""
+    yield None
 
 
 # --- hotkeys

@@ -1,4 +1,5 @@
 """Windows backend: Win32 through ctypes (window/process info, monitors, hotkeys, single instance, shell)."""
+import contextlib
 import ctypes
 import os
 import subprocess
@@ -8,6 +9,7 @@ from pathlib import Path
 from .common import EMPTY_INFO, SKIP_TITLES, box, parse_hotkey
 
 NAME = "windows"
+DIALOG_CLASSES = {"#32770"}  # window class of standard Windows dialogs and message boxes
 
 
 def set_dpi_aware():
@@ -323,6 +325,90 @@ def app_details(pid):
         "elevated": process_elevated(pid),
     }
 
+
+
+# ---------------------------------------------------------------------------
+# UI elements (which control was clicked) through UI Automation
+# ---------------------------------------------------------------------------
+class _UiaElement:
+    """One UI Automation element: name, kind ('Button', 'Edit'...), rect, pid, is_password(), parent()."""
+
+    def __init__(self, c, auto):
+        self._c, self._auto = c, auto
+
+    @property
+    def name(self):
+        return self._c.Name
+
+    @property
+    def kind(self):
+        return (self._c.ControlTypeName or "").replace("Control", "")
+
+    @property
+    def rect(self):
+        r = self._c.BoundingRectangle
+        return (r.left, r.top, r.right, r.bottom)
+
+    @property
+    def pid(self):
+        return self._c.ProcessId
+
+    def is_password(self):
+        try:
+            return bool(self._c.GetPropertyValue(self._auto.PropertyId.IsPasswordProperty))
+        except Exception:
+            return False
+
+    def parent(self):
+        p = self._c.GetParentControl()
+        return _UiaElement(p, self._auto) if p is not None else None
+
+
+class _UiaInspector:
+    def __init__(self, auto):
+        self._auto = auto
+
+    def element_at(self, x, y):
+        c = self._auto.ControlFromPoint(x, y)
+        return _UiaElement(c, self._auto) if c is not None else None
+
+    def dialog_info(self, hwnd):
+        """(texts, button_count, element_count) of a dialog window."""
+        texts, buttons, total = [], 0, 0
+        try:
+            root = self._auto.ControlFromHandle(hwnd)
+
+            def walk(ctrl, depth):
+                nonlocal buttons, total
+                if depth > 5 or total > 60:
+                    return
+                for ch in ctrl.GetChildren():
+                    total += 1
+                    t, nm = ch.ControlTypeName, (ch.Name or "").strip()
+                    if t == "TextControl" and nm and nm not in texts:
+                        texts.append(nm)
+                    elif t == "ButtonControl":
+                        buttons += 1
+                    walk(ch, depth + 1)
+
+            walk(root, 0)
+        except Exception:
+            pass
+        return texts, buttons, total
+
+
+@contextlib.contextmanager
+def element_inspector():
+    """For the thread that will use it: yields an inspector (element_at, dialog_info), or None if UI Automation
+    is unavailable."""
+    try:
+        import uiautomation as auto
+        ctx = auto.UIAutomationInitializerInThread()
+    except Exception:
+        yield None
+        return
+    with ctx:
+        yield _UiaInspector(auto)
 
 # ---------------------------------------------------------------------------
 # global hotkeys without a keyboard hook (RegisterHotKey on its own message-loop thread)
