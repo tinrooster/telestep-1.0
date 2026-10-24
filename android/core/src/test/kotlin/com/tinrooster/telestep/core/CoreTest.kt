@@ -105,6 +105,7 @@ class CoreTest {
         assertTrue(rec.scroll(list, "down", 500, 900, place, Frame(jpeg, 0.5), 1000) != null)
         assertNull(rec.scroll(list, "down", 500, 900, place, Frame(jpeg, 0.5), 2000), "continued scroll merges")
         assertTrue(rec.scroll(list, "up", 500, 900, place, Frame(jpeg, 0.5), 2500) != null, "new direction is a new step")
+        assertEquals("scroll", s.steps.last().marker!!["shape"])
 
         val field = Target("Search", "Edit", false, null, false)
         assertTrue(rec.text("f1", field, "h", place) != null)
@@ -126,6 +127,15 @@ class CoreTest {
         System.getProperty("telestep.sampleOut")?.let { out ->  // the desktop cross-check reads this session
             dir.copyRecursively(File(out), overwrite = true)
         }
+    }
+
+    @Test
+    fun sidewaysScrollHasNoArrow() {
+        val s = Session(Files.createTempDirectory("ts").toFile())
+        val st = StepRecorder(s).scroll(Target("Photos", "Group", false, null, false), "right", 1, 1, Place(),
+            Frame(byteArrayOf(1), 1.0), 0)!!
+        assertEquals("none", st.marker!!["shape"])
+        assertEquals("Scroll right in \"Photos\"", st.friendly)
     }
 
     @Test

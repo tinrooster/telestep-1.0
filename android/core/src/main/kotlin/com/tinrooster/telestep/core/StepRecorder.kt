@@ -65,12 +65,13 @@ class StepRecorder(
         breakRuns()
         val (friendly, tech) = Captions.scroll(direction, t.name)
         val st = newStep("scroll", friendly, tech, place)
+        st.marker = mapOf("shape" to "none")
         if (frame != null) {
             st.raw = saveImage(st.id, frame, "")
             st.geom = geom(frame)
-            st.marker = linkedMapOf("shape" to "scroll", "pt" to pt(frame, x, y), "dir" to direction, "win" to null)
-        } else {
-            st.marker = mapOf("shape" to "none")
+            if (direction == "up" || direction == "down") {  // the desktop draws vertical scroll arrows only
+                st.marker = linkedMapOf("shape" to "scroll", "pt" to pt(frame, x, y), "dir" to direction, "win" to null)
+            }
         }
         lastScroll = st
         lastScrollKey = key

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Telestep</string>
+    <string name="service_name">Telestep step recorder</string>
+    <string name="service_description">Records the steps you take while a recording is running: which buttons you tap, with a screenshot of each step, so you can turn them into a how-to or a support ticket. Nothing leaves the phone unless you share a recording. Password fields are never recorded and are blurred in screenshots.</string>
+</resources>
