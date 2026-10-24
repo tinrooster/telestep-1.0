@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Hide styles simplified: removed Hatched and Frosted glass; added Pixelated (fine), Blurred and Blurred (heavy) (real Gaussian blur that blends with its surroundings). Old settings and sessions that used the removed styles open as Soft gray / Blurred.
+
 - Privacy tab: one "Use OCR" switch turns OCR redaction and click labelling on or off while keeping your ticked options (they grey out when it is off). It is saved with the settings and shown in the toolbar summary.
 
 - Backlog guard: if a slow computer falls behind, Telestep warns at 25 waiting clicks and pauses capturing at 60 (each waiting click holds a full screenshot in memory), then resumes by itself at 15. The toolbar shows "Catching up" while paused.

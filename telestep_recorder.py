@@ -15,7 +15,7 @@ Rescue:   python telestep_recorder.py --export  <old v1 folder with steps.md>   
 
 Capture area:  --capture screen|all|monitor|window|region   --monitor N   --region L,T,R,B   --exclude-taskbar
 Hiding:        --mask L,T,R,B[:style]   --hide-window "Title text"[:style]   --mask-style soft
-               styles: solid soft hatch pixelate frosted match dim
+               styles: solid soft match pixelate pixelate_fine blur blur_heavy dim
                --ocr-redact ip,mac,key,email   (needs Tesseract)
 Keyboard:      --keys none|count|text    (none = mouse only: no keyboard hook at all)
 Extras:        --after off|replace|pair  --after-ms 700   --scroll   --no-drag --no-dbl --no-shortcuts
@@ -850,8 +850,8 @@ def _parse_rect(text):
 def _split_style(text, default):
     if ":" in text:
         head, _, tail = text.rpartition(":")
-        if tail.strip().lower() in core.MASK_STYLES:
-            return head, tail.strip().lower()
+        if tail.strip().lower() in core.MASK_STYLES or tail.strip().lower() in core.LEGACY_STYLES:
+            return head, core.canon_style(tail.strip().lower())
     return text, default
 
 
@@ -870,7 +870,7 @@ def main(argv=None):
     ap.add_argument("--mask", action="append", default=[], metavar="L,T,R,B[:style]")
     ap.add_argument("--hide-window", action="append", default=[], metavar="TITLE[:style]",
                     help="mask any window whose title contains TITLE (follows the window)")
-    ap.add_argument("--mask-style", default="solid", choices=list(core.MASK_STYLES))
+    ap.add_argument("--mask-style", default="solid", choices=list(core.MASK_STYLES) + list(core.LEGACY_STYLES))
     ap.add_argument("--ocr-redact", default="", help="comma list of ip,mac,key,email")
     ap.add_argument("--keys", choices=["none", "count", "text"], default="count")
     ap.add_argument("--log-keys", action="store_true", help="same as --keys text")

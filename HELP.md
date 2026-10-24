@@ -43,7 +43,7 @@ with a delay in ms. Handy for menus and dialogs that open on click.
 Masks are burned into the screenshot *before* it is saved - the unmasked screen never touches disk.
 - **Add area** = fixed rectangle. **Add window** = hides any window whose title contains your text, wherever it moves
   (e.g. `Password`, `Vault`, `Teams chat`). (It hides the whole window rectangle, including parts of other windows that overlap it.)
-- Styles: solid black, soft gray + "Hidden" label, hatched, pixelated, frosted glass, match background (looks like nothing was there).
+- Styles: solid black, soft gray + "Hidden" label, match background (looks like nothing was there), pixelated (normal or fine), blurred (normal or heavy). For real secrets (passwords, keys) use solid black: blur and pixelation are meant to look good, not to withstand a determined attempt to undo them.
   **Faded** only de-emphasises - the text is still readable, so don't use it for secrets.
 - **OCR redaction** (optional) masks anything that looks like an IP address, MAC address, long key/token or e-mail.
   Needs `pip install pytesseract` **and** the Tesseract program (https://github.com/UB-Mannheim/tesseract/wiki).

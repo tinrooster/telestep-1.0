@@ -573,13 +573,21 @@ def get_font(size, bold=False):
 MASK_STYLES = {
     "solid": "Solid black",
     "soft": "Soft gray + label",
-    "hatch": "Hatched gray",
-    "pixelate": "Pixelated",
-    "frosted": "Frosted glass",
     "match": "Match background",
+    "pixelate": "Pixelated",
+    "pixelate_fine": "Pixelated (fine)",
+    "blur": "Blurred",
+    "blur_heavy": "Blurred (heavy)",
     "dim": "Faded (de-emphasize only - still readable!)",
 }
 HIDING_STYLES = [k for k in MASK_STYLES if k != "dim"]
+LEGACY_STYLES = {"hatch": "soft", "frosted": "blur"}  # removed styles: old settings and sessions still open
+
+
+def canon_style(key):
+    """Current style key for any (possibly retired) one; unknown values fail closed to solid."""
+    key = LEGACY_STYLES.get(key, key)
+    return key if key in MASK_STYLES else "solid"
 
 
 @dataclass
@@ -598,7 +606,7 @@ class Mask:
     @classmethod
     def from_dict(cls, d):
         r = d.get("rect")
-        return cls(tuple(r) if r else None, d.get("title", ""), d.get("style", "solid"), d.get("label", ""))
+        return cls(tuple(r) if r else None, d.get("title", ""), canon_style(d.get("style", "solid")), d.get("label", ""))
 
     def describe(self):
         st = MASK_STYLES.get(self.style, self.style).split(" (")[0]
@@ -629,37 +637,30 @@ def apply_mask(img, rect, style="solid", label=""):
     if w < 1 or h < 1:
         return
     d = ImageDraw.Draw(img)
-    if style == "soft" or style == "hatch":
-        base, line = (226, 229, 234), (190, 196, 206)
-        tile = Image.new("RGB", (w, h), base)
-        if style == "hatch":
-            td = ImageDraw.Draw(tile)
-            step = max(8, min(w, h) // 10)
-            for k in range(-h, w, step):
-                td.line([(k, h), (k + h, 0)], fill=line, width=max(1, step // 6))
-        img.paste(tile, (l, t))
+    style = canon_style(style)
+    if style == "soft":
+        base = (226, 229, 234)
+        img.paste(Image.new("RGB", (w, h), base), (l, t))
         d.rectangle([l, t, r - 1, b - 1], outline=(165, 171, 182))
         if label and w >= 48 and h >= 16:
             font = get_font(min(h * 0.45, 22), bold=True)
             tw = d.textlength(label, font=font)
             if tw < w - 6:
-                if style == "hatch":  # keep the label legible over the stripes
-                    pad = 4
-                    d.rectangle([l + (w - tw) / 2 - pad, t + h / 2 - font.size * 0.7,
-                                 l + (w + tw) / 2 + pad, t + h / 2 + font.size * 0.7], fill=base)
                 d.text((l + w / 2, t + h / 2), label, fill=(95, 102, 115), font=font, anchor="mm")
-    elif style == "pixelate":
+    elif style in ("pixelate", "pixelate_fine"):
         region = img.crop((l, t, r, b))
-        block = max(10, int(min(w, h) / 4))
+        block = max(10, int(min(w, h) / 4)) if style == "pixelate" else max(7, int(min(w, h) / 6))
         small = region.resize((max(1, w // block), max(1, h // block)), Image.BILINEAR)
         img.paste(small.resize((w, h), Image.NEAREST), (l, t))
-    elif style == "frosted":
-        region = img.crop((l, t, r, b))
-        block = max(6, int(min(w, h) / 8))
-        region = region.resize((max(1, w // block), max(1, h // block)), Image.BILINEAR).resize((w, h), Image.NEAREST)
-        region = region.filter(ImageFilter.GaussianBlur(max(8, min(w, h) / 6)))
-        img.paste(Image.blend(region, Image.new("RGB", (w, h), (255, 255, 255)), 0.38), (l, t))
-        d.rectangle([l, t, r - 1, b - 1], outline=(235, 238, 242))
+    elif style in ("blur", "blur_heavy"):
+        short = min(w, h)
+        sigma = min(60, max(9, short * 0.35)) if style == "blur" else min(60, max(16, short * 0.7))
+        pad = int(sigma * 3)  # blur with the surroundings too, so the edges look natural (they are not secret)
+        L, T = max(0, l - pad), max(0, t - pad)
+        R, B = min(img.width, r + pad), min(img.height, b + pad)
+        blurred = img.crop((L, T, R, B)).filter(ImageFilter.GaussianBlur(sigma))
+        patch = blurred.crop((l - L, t - T, l - L + w, t - T + h))
+        img.paste(Image.blend(patch, Image.new("RGB", (w, h), (128, 128, 128)), 0.08), (l, t))
     elif style == "match":
         meds = []
         m = 3
@@ -691,7 +692,7 @@ def apply_masks(img, box, masks, window_finder=find_windows):
             c = _intersect(_box(*r), box)
             if c:
                 l, t = c["left"] - box["left"], c["top"] - box["top"]
-                label = m.label or ("Hidden" if m.style in ("soft", "hatch") else "")
+                label = m.label or ("Hidden" if canon_style(m.style) == "soft" else "")
                 apply_mask(img, (l, t, l + c["width"], t + c["height"]), m.style, label)
 
 

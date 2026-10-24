@@ -199,7 +199,7 @@ class App:
         self.var_shortcuts = tk.BooleanVar(value=d["shortcuts"])
         self.var_dialogs = tk.BooleanVar(value=d["watch_dialogs"])
         self.var_keys = tk.StringVar(value=_inv(KEYS, d["key_mode"]))
-        self.var_mstyle = tk.StringVar(value=core.MASK_STYLES.get(d["mask_style"], core.MASK_STYLES["solid"]))
+        self.var_mstyle = tk.StringVar(value=core.MASK_STYLES[core.canon_style(d["mask_style"])])
         self.var_ocr = {k: tk.BooleanVar(value=d["ocr"].get(k, False)) for k in core.OCR_PATTERNS}
         self.var_ocr_labels = tk.BooleanVar(value=d["ocr_labels"])
         self.var_ocr_on = tk.BooleanVar(value=d.get("ocr_enabled", True))  # master switch: keeps the ticks below
@@ -627,7 +627,7 @@ class App:
                          (self.var_overlay, "overlays"), (self.var_hide, "hide_from_capture")):
             var.set(d[key])
         self.var_keys.set(_inv(KEYS, d["key_mode"]))
-        self.var_mstyle.set(core.MASK_STYLES.get(d["mask_style"], core.MASK_STYLES["solid"]))
+        self.var_mstyle.set(core.MASK_STYLES[core.canon_style(d["mask_style"])])
         for k, v in self.var_ocr.items():
             v.set(d["ocr"].get(k, False))
         self.var_ocr_labels.set(d.get("ocr_labels", True))
@@ -883,7 +883,7 @@ class App:
     def _mask_selected(self):
         sel = self.lst_masks.curselection()
         if sel and sel[0] < len(self.masks):
-            self.var_mstyle.set(core.MASK_STYLES.get(self.masks[sel[0]].style, core.MASK_STYLES["solid"]))
+            self.var_mstyle.set(core.MASK_STYLES[core.canon_style(self.masks[sel[0]].style)])
 
     def _mask_style_changed(self):
         sel = self.lst_masks.curselection()

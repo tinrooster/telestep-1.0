@@ -16,7 +16,7 @@ Nothing leaves your computer: no cloud service, no account, no upload.
 - **Capture area:** screen under the click, all screens, one screen, the window under the click, or a custom area. Optional taskbar exclusion.
 - **Privacy:**
   - Masks (fixed areas, or windows matched by title that follow the window when it moves) are applied before anything is saved.
-  - Styles: solid, soft gray, hatched, pixelated, frosted, background-matched, and faded (readable, for de-emphasis only).
+  - Styles: solid, soft gray, background-matched, pixelated (normal/fine), blurred (normal/heavy), and faded (readable, for de-emphasis only). Older "hatched" and "frosted" sessions still open (as soft gray and blurred).
   - Optional OCR redaction of IP addresses, MAC addresses, keys and e-mail addresses.
 - **Right-click menus** on the step list, the screenshot and the toolbar.
 - **Smarter captions:** controls that expose no name are labelled with nearby on-screen text (OCR, optional).
