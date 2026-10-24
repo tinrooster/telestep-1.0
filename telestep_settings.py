@@ -12,7 +12,7 @@ DEFAULTS = {
     "capture_mode": "screen", "monitor": 1, "region": None, "exclude_taskbar": False,
     "after_mode": "off", "after_delay_ms": 700, "max_width": 1600,
     "dbl": True, "drag": True, "scroll": False, "shortcuts": True, "watch_dialogs": True,
-    "narrate": False,
+    "narrate": False, "audio_device": "",
     # privacy
     "masks": [], "mask_style": "pixelate_fine", "key_mode": "count",
     "ocr": {"ip": False, "mac": False, "key": False, "email": False, "card": False, "ssn": False}, "ocr_style": "solid", "ocr_labels": True, "ocr_enabled": True,
@@ -28,7 +28,7 @@ DEFAULTS = {
 }
 NESTED = ("ocr", "formats", "template", "hotkeys")
 # what a preset stores (everything except per-machine bits and the preset list itself)
-PRESET_KEYS = [k for k in DEFAULTS if k not in ("base_dir", "toolbar_pos", "presets", "update_check", "update_last")]
+PRESET_KEYS = [k for k in DEFAULTS if k not in ("base_dir", "toolbar_pos", "presets", "update_check", "update_last", "audio_device")]
 
 
 def app_dir():

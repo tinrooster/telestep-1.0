@@ -80,6 +80,21 @@ def make_icon(kind, color, size=20):
         d.polygon([(f(.62), f(.1)), (f(.62), f(.3)), (f(.82), f(.3))], fill=(255, 255, 255, 150))
         for y in (.5, .64, .78):
             d.rectangle([f(.3), f(y - .03), f(.7), f(y + .03)], fill=(255, 255, 255, 235))
+    elif kind in ("mic_on", "mic_off"):
+        on = kind == "mic_on"
+        if on:  # bold: a solid red disc with a white microphone, impossible to miss
+            d.ellipse([f(.02), f(.02), f(.98), f(.98)], fill=color)
+            ink = (255, 255, 255, 255)
+        else:
+            ink = color
+        w_ = int(f(.09))
+        d.rounded_rectangle([f(.38), f(.18), f(.62), f(.58)], radius=f(.12), fill=ink)
+        d.arc([f(.26), f(.34), f(.74), f(.7)], 0, 180, fill=ink, width=w_)
+        d.line([(f(.5), f(.7)), (f(.5), f(.82))], fill=ink, width=w_)
+        d.line([(f(.38), f(.82)), (f(.62), f(.82))], fill=ink, width=w_)
+        if not on:  # a slash through it
+            d.line([(f(.14), f(.86)), (f(.86), f(.14))], fill=(255, 255, 255, 255), width=int(f(.2)))
+            d.line([(f(.14), f(.86)), (f(.86), f(.14))], fill=color, width=int(f(.09)))
     elif kind == "folder":
         d.polygon([(f(.08), f(.26)), (f(.4), f(.26)), (f(.48), f(.36)), (f(.92), f(.36)),
                    (f(.92), f(.82)), (f(.08), f(.82))], fill=color)

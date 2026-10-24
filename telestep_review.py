@@ -911,7 +911,7 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         if not st or not st.numbered:
             return
         audio.stop_playing()
-        n = audio.Narrator("telestep_note")
+        n = audio.Narrator()
         ok, msg = n.start()
         if not ok:
             messagebox.showerror("Telestep", f"Could not start the microphone: {msg}", parent=self)

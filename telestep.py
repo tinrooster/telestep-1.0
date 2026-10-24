@@ -23,6 +23,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+import telestep_audio as ta
 import telestep_core as core
 import telestep_report as rep
 import telestep_recorder as sr
@@ -37,7 +38,7 @@ KEYS = {"Mouse only - no keyboard hook at all": "none", "Count typed characters 
         "Record typed text (never passwords)": "text"}
 ICON_COLORS = {"record": "#e53935", "pause": "#f59e0b", "resume": "#2e9e4f", "stop": "#b71c1c", "note": "#1e88e5",
                "camera": "#00897b", "review": "#5e35b1", "folder": "#8d6e63", "gear": "#546e7a",
-               "help": "#0277bd", "minimize": "#546e7a"}
+               "help": "#0277bd", "minimize": "#546e7a", "mic_on": "#e53935", "mic_off": "#607d8b"}
 
 
 def _inv(d, value):
@@ -199,6 +200,8 @@ class App:
         self.var_shortcuts = tk.BooleanVar(value=d["shortcuts"])
         self.var_dialogs = tk.BooleanVar(value=d["watch_dialogs"])
         self.var_narrate = tk.BooleanVar(value=d.get("narrate", False))
+        self.var_audio_dev = tk.StringVar(value=d.get("audio_device", "") or ta.DEFAULT_NAME)
+        ta.preferred = d.get("audio_device", "") or ""
         self.var_keys = tk.StringVar(value=_inv(KEYS, d["key_mode"]))
         self.var_mstyle = tk.StringVar(value=core.MASK_STYLES[core.canon_style(d["mask_style"])])
         self.var_ocr = {k: tk.BooleanVar(value=d["ocr"].get(k, False)) for k in core.OCR_PATTERNS}
@@ -247,6 +250,8 @@ class App:
         self.btn_stop = self._icon_btn(bar, "stop", "Stop and save", self.stop)
         self.btn_note = self._icon_btn(bar, "note", "Add a note, warning or tip", self.add_note)
         self.btn_shot = self._icon_btn(bar, "camera", "Take a screenshot now (no click needed)", self.shot)
+        self.btn_mic = self._icon_btn(bar, "mic_off", "Microphone: click to start / stop narrating (one voice clip per step)",
+                                      self.toggle_mic)
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=5, pady=2)
         ttk.Label(bar, textvariable=self.var_status, width=18, font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 4))
         self.btn_gear = ttk.Checkbutton(bar, style="Toolbutton", variable=self.var_cfg, command=self.toggle_config,
@@ -277,12 +282,14 @@ class App:
         self.tab_general, self.tab_capture = ttk.Frame(self.nb, padding=8), ttk.Frame(self.nb, padding=8)
         self.tab_privacy, self.tab_report = ttk.Frame(self.nb, padding=8), ttk.Frame(self.nb, padding=8)
         self.tab_options = ttk.Frame(self.nb, padding=8)
-        for tab, name in ((self.tab_general, "General"), (self.tab_capture, "Capture"), (self.tab_privacy, "Privacy"),
-                          (self.tab_report, "Report"), (self.tab_options, "Options")):
+        self.tab_audio = ttk.Frame(self.nb, padding=8)
+        for tab, name in ((self.tab_general, "General"), (self.tab_capture, "Capture"), (self.tab_audio, "Audio"),
+                          (self.tab_privacy, "Privacy"), (self.tab_report, "Report"), (self.tab_options, "Options")):
             tab.columnconfigure(1, weight=1)
             self.nb.add(tab, text=name)
         self._tab_general()
         self._tab_capture()
+        self._tab_audio()
         self._tab_privacy()
         self._tab_report()
         self._tab_options()
@@ -370,8 +377,7 @@ class App:
         self.rec_checks = [ttk.Checkbutton(rec, text=txt, variable=var) for txt, var in (
             ("Double-clicks", self.var_dbl), ("Drags", self.var_drag), ("Scrolling", self.var_scroll),
             ("Keyboard shortcuts (Ctrl+S ...)", self.var_shortcuts),
-            ("Error / message boxes + admin-window warning", self.var_dialogs),
-            ("Voice narration (microphone, one clip per step)", self.var_narrate))]
+            ("Error / message boxes + admin-window warning", self.var_dialogs))]
         for i, c in enumerate(self.rec_checks):
             c.grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 12))
         ttk.Checkbutton(t, text="Show capture outline",
@@ -454,6 +460,125 @@ class App:
         self._grid(t, 7, "Focus", self.cmb_focus)
         ttk.Label(t, text="Friendly: Click the \"Save\" button    Technical: Left click on \"Save\" (Button)",
                   foreground="gray").grid(row=8, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+    def _tab_audio(self):
+        t = self.tab_audio
+        ttk.Label(t, text="Voice narration: click the microphone button on the toolbar while recording to talk "
+                          "along with your steps. Each step keeps what you say before its click.",
+                  wraplength=int(330 * self.scale), justify="left", foreground="#4a5560"
+                  ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        dev = ttk.Frame(t)
+        self.cmb_audio = ttk.Combobox(dev, textvariable=self.var_audio_dev, state="readonly", width=30)
+        self.cmb_audio.pack(side="left", fill="x", expand=True)
+        self.cmb_audio.bind("<<ComboboxSelected>>", lambda e: self._audio_device_changed())
+        ttk.Button(dev, text="Refresh", command=self._audio_refresh, width=8).pack(side="left", padx=(4, 0))
+        self._grid(t, 1, "Microphone", dev)
+        test = ttk.Frame(t)
+        self.btn_atest = ttk.Button(test, text="Test microphone", command=self._audio_test, width=17)
+        self.btn_atest.pack(side="left")
+        self.btn_aplay = ttk.Button(test, text="\u25b6 Play back", command=self._audio_play, width=12, state="disabled")
+        self.btn_aplay.pack(side="left", padx=(6, 0))
+        self._grid(t, 2, "Check", test)
+        self.pb_level = ttk.Progressbar(t, maximum=100, length=200)
+        self._grid(t, 3, "Level", self.pb_level)
+        self.var_atest = tk.StringVar(value="Click Test, then speak: the bar should move.")
+        ttk.Label(t, textvariable=self.var_atest, wraplength=int(330 * self.scale), justify="left"
+                  ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(2, 6))
+        ttk.Checkbutton(t, text="Start every recording with the microphone on", variable=self.var_narrate
+                        ).grid(row=5, column=0, columnspan=2, sticky="w")
+        ttk.Label(t, text="(Normally it starts OFF; you switch it on with the toolbar button.)", foreground="gray"
+                  ).grid(row=6, column=0, columnspan=2, sticky="w")
+        links = ttk.Frame(t)
+        ttk.Button(links, text="Windows sound settings", command=lambda: self._open_ms("ms-settings:sound")
+                   ).pack(side="left")
+        ttk.Button(links, text="Microphone privacy", command=lambda: self._open_ms("ms-settings:privacy-microphone")
+                   ).pack(side="left", padx=(6, 0))
+        links.grid(row=7, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(t, text="Voice is saved as-is: the hide tools and the privacy check do not cover it.",
+                  foreground="gray", wraplength=int(330 * self.scale), justify="left"
+                  ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self._atest = None  # (Narrator, started_at, peak) while testing
+        self._atest_file = None
+        self._audio_refresh()
+
+    def _audio_names(self):
+        return [ta.DEFAULT_NAME] + [n for _i, n in ta.list_devices()]
+
+    def _audio_refresh(self):
+        names = self._audio_names()
+        self.cmb_audio.configure(values=names)
+        if self.var_audio_dev.get() not in names:
+            self.var_audio_dev.set(ta.DEFAULT_NAME)  # the chosen microphone is not plugged in right now
+        if not ta.available():
+            self.var_atest.set("Voice recording needs Windows.")
+            self.btn_atest.state(["disabled"])
+        elif len(names) == 1:
+            self.var_atest.set("Windows reports no microphone. Plug one in (or enable it in Windows sound settings), "
+                               "then click Refresh.")
+
+    def _audio_device_changed(self):
+        name = self.var_audio_dev.get()
+        ta.preferred = "" if name == ta.DEFAULT_NAME else name
+        self.var_atest.set("Microphone changed. Click Test to check it.")
+
+    def _open_ms(self, uri):
+        try:
+            os.startfile(uri)  # Windows only
+        except Exception:
+            self.toast("Open Windows Settings > System > Sound (or Privacy > Microphone).", 6)
+
+    def _audio_test(self):
+        if self._atest:
+            self._audio_test_stop()
+            return
+        if self.rec:
+            self.var_atest.set("Stop the recording first - the microphone is in use.")
+            return
+        n = ta.Narrator()
+        ok, msg = n.start()
+        if not ok:
+            self.var_atest.set("Could not open the microphone: " + msg)
+            return
+        self._atest = [n, time.monotonic(), 0.0]
+        self.btn_atest.configure(text="Stop test")
+        self.btn_aplay.state(["disabled"])
+        self.var_atest.set("Listening... speak now.")
+        self._audio_tick()
+
+    def _audio_tick(self):
+        if not self._atest:
+            return
+        n, t0, peak = self._atest
+        self.pb_level["value"] = int(n.level * 100)
+        self._atest[2] = max(peak, n.level)
+        if time.monotonic() - t0 > 12:
+            self._audio_test_stop()
+            return
+        self.root.after(70, self._audio_tick)
+
+    def _audio_test_stop(self):
+        if not self._atest:
+            return
+        n, _t0, peak = self._atest
+        self._atest = None
+        import tempfile
+        path = Path(tempfile.gettempdir()) / "telestep_mic_test.wav"
+        saved = n.stop(path)
+        self.pb_level["value"] = 0
+        self.btn_atest.configure(text="Test microphone")
+        if saved and peak >= 0.04:
+            self._atest_file = path
+            self.btn_aplay.state(["!disabled"])
+            self.var_atest.set(f"Microphone works (loudest {int(peak * 100)}%). Play back to hear what it recorded.")
+        elif saved:
+            self.var_atest.set("The microphone opened but heard (almost) nothing. Check the device above, the "
+                               "microphone's volume/mute in Windows sound settings, and Microphone privacy.")
+        else:
+            self.var_atest.set("The test recorded nothing: " + (n.error or "no audio"))
+
+    def _audio_play(self):
+        if self._atest_file and Path(self._atest_file).exists():
+            ta.play(self._atest_file)
 
     def _tab_options(self):
         t = self.tab_options
@@ -539,7 +664,8 @@ class App:
         self.tabbar = tk.Frame(self.cfg, bg="#b8bfc7", padx=0, pady=0)
         self.tabbar.pack(fill="x", before=self.nb, pady=(0, 0))
         self._tabs = []
-        for tab in (self.tab_general, self.tab_capture, self.tab_privacy, self.tab_report, self.tab_options):
+        for tab in (self.tab_general, self.tab_capture, self.tab_audio, self.tab_privacy, self.tab_report,
+                    self.tab_options):
             cell = tk.Frame(self.tabbar, bd=0)
             lbl = tk.Label(cell, text=self.nb.tab(tab, "text"), padx=10, pady=5, cursor="hand2")
             bar = tk.Frame(cell, height=3)
@@ -617,6 +743,10 @@ class App:
         self.cbtn_rec = self._icon_btn(self.c_ctl, "record", "Record (start a new session)", self.start)
         self.cbtn_pause = self._icon_btn(self.c_ctl, "pause", "Pause / resume", self.toggle_pause)
         self.cbtn_stop = self._icon_btn(self.c_ctl, "stop", "Stop and save", self.stop)
+        # the microphone indicator stays visible on the collapsed badge while recording: click it to switch
+        self.c_mic = ttk.Label(self.cframe, cursor="hand2")
+        self.c_mic.bind("<Button-1>", lambda e: self.toggle_mic())
+        w.Tip(self.c_mic, "Microphone: red = recording your voice. Click to switch on / off.")
         ttk.Separator(self.c_ctl, orient="vertical").pack(side="left", fill="y", padx=3, pady=2)
         self.cbtn_settings = self._icon_btn(self.c_ctl, "gear", "Settings", self.show_settings)
         for wd in (self.cframe, self.c_icon):  # drag the badge to move it
@@ -656,6 +786,8 @@ class App:
         self._enable(self.cbtn_rec, idle)
         self._enable(self.cbtn_pause, not idle)
         self._enable(self.cbtn_stop, not idle)
+        self._mic_key = None
+        self._show_mic(bool(self.rec and self.rec.mic_on))
         self._set_icon(self.cbtn_pause, "resume" if self.state == "paused" else "pause")
 
     def enter_compact(self):
@@ -815,7 +947,8 @@ class App:
             "after_mode": AFTER[self.var_after.get()], "after_delay_ms": self._int(self.var_delay, 700),
             "max_width": self._int(self.var_width, 1600), "dbl": self.var_dbl.get(), "drag": self.var_drag.get(),
             "scroll": self.var_scroll.get(), "shortcuts": self.var_shortcuts.get(),
-            "watch_dialogs": self.var_dialogs.get(), "narrate": self.var_narrate.get(), "masks": [m.to_dict() for m in self.masks],
+            "watch_dialogs": self.var_dialogs.get(), "narrate": self.var_narrate.get(),
+            "audio_device": "" if self.var_audio_dev.get() == ta.DEFAULT_NAME else self.var_audio_dev.get(), "masks": [m.to_dict() for m in self.masks],
             "mask_style": self.style_key(), "key_mode": KEYS[self.var_keys.get()],
             "ocr": {k: v.get() for k, v in self.var_ocr.items()}, "ocr_labels": self.var_ocr_labels.get(), "ocr_enabled": self.var_ocr_on.get(), "formats": {k: v.get() for k, v in self.var_fmt.items()},
             "review_after_stop": self.var_review.get(), "wording": self.wording(),
@@ -960,7 +1093,7 @@ class App:
         self.state = state
         idle = state == "idle"
         self._enable(self.btn_rec, idle)
-        for b in (self.btn_pause, self.btn_stop, self.btn_note, self.btn_shot):
+        for b in (self.btn_pause, self.btn_stop, self.btn_note, self.btn_shot, self.btn_mic):
             self._enable(b, not idle)
         self._set_icon(self.btn_pause, "resume" if state == "paused" else "pause")
         self.ent_title.config(state="normal" if idle else "disabled")
@@ -1226,6 +1359,30 @@ class App:
     def toggle_pause(self):
         if self.rec:
             self.rec.toggle_pause()
+
+    def toggle_mic(self):
+        """Narration on/off: the first click opens the microphone, later clicks mute and unmute it."""
+        if self.rec:
+            if not self.rec.set_mic(not self.rec.mic_on):
+                return  # the reason arrives as a toast
+            self.toast("Microphone ON - talk while you work; each step keeps what you say before its click."
+                       if self.rec.mic_on else "Microphone off.", 4)
+            self._show_mic(self.rec.mic_on)
+
+    def _show_mic(self, on):
+        recording = self.state != "idle"
+        key = (on, recording)
+        if key == getattr(self, "_mic_key", None):
+            return
+        self._mic_key = key
+        self._set_icon(self.btn_mic, "mic_on" if on else "mic_off")
+        on_img, off_img = self.icons["mic_on" if on else "mic_off"]
+        self.c_mic.configure(image=on_img)
+        self.c_mic.image = on_img
+        if recording:
+            self.c_mic.grid(row=0, column=2, padx=(2, 2), pady=2)
+        else:
+            self.c_mic.grid_remove()
 
     def shot(self, from_menu=False):
         if self.rec:
@@ -1501,6 +1658,8 @@ class App:
                 self.toast(f"Deleted last step: {ev[1]}", 3)
             elif ev[0] == "warn":
                 self.toast(ev[1], 12)
+            elif ev[0] == "mic":
+                self._show_mic(ev[1])
             elif ev[0] == "backlog":
                 msg = {"warn": f"Telestep is catching up ({ev[2]} clicks waiting). Pause a moment between clicks.",
                        "hold": f"Too many clicks waiting ({ev[2]}): new clicks are NOT being recorded until Telestep "
@@ -1576,10 +1735,11 @@ class App:
                 if rec.holding:
                     self.var_status.set(f"⏳ Catching up +{q}")
                 else:
-                    mic = " 🎙" if rec.narr else ""
-                    self.var_status.set(f"● REC{mic}  {n}{tail} steps" if st == "rec" else f"‖ Paused{mic}  {n}{tail}")
+                    self.var_status.set(f"● REC  {n}{tail} steps" if st == "rec" else f"‖ Paused  {n}{tail}")
+                self._show_mic(rec.mic_on)
         elif self.state == "idle":
             self.var_status.set(self.idle_msg)
+            self._show_mic(False)
         if self.var_toast.get() and time.monotonic() > self.toast_until:
             self.var_toast.set("")
             self.lbl_toast.grid_remove()

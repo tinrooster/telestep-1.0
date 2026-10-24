@@ -339,9 +339,32 @@ class Recorder:
 
     def toggle_pause(self):
         self.paused = not self.paused
-        if self.narr:  # the microphone follows the pause, so off-the-record chatter is never kept
-            (self.narr.pause if self.paused else self.narr.resume)()
+        self._sync_mic()  # the microphone follows the pause, so off-the-record chatter is never kept
         self.events.put(("paused", self.paused))
+
+    mic_on = False  # the person's microphone switch (the toolbar mic button)
+
+    def set_mic(self, on):
+        """Switch narration on or off.  The first switch-on opens the microphone; after that it is muted/unmuted.
+        Returns False (and says why through the events queue) when the microphone can't be opened."""
+        if on and not self.narr:
+            import telestep_audio
+            n = telestep_audio.Narrator()
+            ok, msg = n.start()
+            if not ok:
+                self.mic_on = False
+                self.events.put(("warn", f"Microphone not started: {msg}"))
+                return False
+            self.narr = n
+        self.mic_on = bool(on)
+        self._sync_mic()
+        self.events.put(("mic", self.mic_on))
+        return True
+
+    def _sync_mic(self):
+        n = self.narr
+        if n:
+            (n.resume if self.mic_on and not self.paused else n.pause)()
 
     def request_stop(self):
         self.stop_evt.set()
@@ -814,14 +837,8 @@ class Recorder:
         self.session.settings = {"wording": self.o.wording}
         self.session.save()
         self._register_hotkeys()
-        if self.o.narrate:
-            import telestep_audio
-            n = telestep_audio.Narrator()
-            ok, msg = n.start()
-            if ok:
-                self.narr = n
-            else:
-                self.events.put(("warn", f"Voice narration is off: {msg}"))
+        if self.o.narrate:  # "microphone on from the start"; the toolbar mic button switches it afterwards
+            self.set_mic(True)
         self._worker.start()
         self._watcher.start()
         self._ml = mouse.Listener(on_click=self.on_click, on_scroll=self.on_scroll)
@@ -855,26 +872,45 @@ class Recorder:
         return self.session
 
     def _finish_audio(self):
-        """End the narration and cut it into one clip per numbered step (see telestep_audio)."""
+        """End the narration and cut it into one clip per numbered step (see telestep_audio).  If anything goes
+        wrong the raw recording is kept as audio/narration_unsplit.wav and audio/narration_problem.txt says why."""
         n, self.narr = self.narr, None
         if not n:
             return
         import telestep_audio
-        master = self.session.dir / "audio" / "_narration.wav"
+        adir = self.session.dir / "audio"
+        master = adir / "_narration.wav"
+        marks = [(s.id, s.apos) for s in self.session.steps if s.numbered and s.apos >= 0]
+        done, problem = {}, ""
         try:
-            if n.stop(master):
-                marks = [(s.id, s.apos) for s in self.session.steps if s.numbered and s.apos >= 0]
-                done = telestep_audio.cut_clips(master, marks, self.session.dir / "audio")
+            if not n.stop(master):
+                problem = n.error or "the microphone recording could not be saved"
+            elif not marks:
+                problem = "no step was recorded while the microphone was on"
+            else:
+                done = telestep_audio.cut_clips(master, marks, adir)
                 by_id = {s.id: s for s in self.session.steps}
                 for sid, fn in done.items():
                     by_id[sid].audio = f"audio/{fn}"
+                if not done:
+                    problem = telestep_audio.LAST_ERROR or "no speech was loud enough to keep (check the microphone level)"
         except Exception as e:  # narration is a bonus; never lose the steps over it
-            self.events.put(("warn", f"Could not save the narration ({type(e).__name__}: {e})"))
-        finally:
+            problem = f"{type(e).__name__}: {e}"
+        if problem:
+            self.events.put(("warn", f"Voice narration: {problem}"))
             try:
-                master.unlink()
+                adir.mkdir(parents=True, exist_ok=True)
+                info = telestep_audio.describe(master) if master.exists() else "no recording file"
+                (adir / "narration_problem.txt").write_text(
+                    f"{problem}\nmarks: {len(marks)}\nrecording: {info}\n", encoding="utf-8")
+                if master.exists():
+                    master.replace(adir / "narration_unsplit.wav")
             except OSError:
                 pass
+        try:
+            master.unlink()
+        except OSError:
+            pass
 
     def run(self):
         self.start()
