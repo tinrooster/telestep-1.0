@@ -143,7 +143,8 @@ The full narration is kept as `audio/narration.wav` in the recording folder (use
 Telestep says why when you stop and writes `audio/narration_problem.txt`.
 
 In the review editor, **Voice note** under the caption lets you play (with a progress bar and Stop), re-record or remove a
-step's clip, and **Play all** steps through the whole recording showing each step while its clip plays (you can also add
+step's clip, **Play** on several selected steps plays their clips one after another, and **Play all** steps through the whole
+recording showing each step while its clip plays (you can also add
 notes to a recording made without narration). Voice notes are saved as `audio/` files in the recording folder; merging steps
 joins their clips, duplicating copies them.
 
