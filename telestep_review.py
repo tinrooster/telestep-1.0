@@ -9,7 +9,6 @@ telestep_review.py - review / edit a recorded session, then export it.
 Open it from the toolbar (list icon), automatically after Stop, or:  python telestep_recorder.py --review <folder>
 """
 import dataclasses
-import sys
 import time
 import tkinter as tk
 from pathlib import Path
@@ -1016,7 +1015,7 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         sel = [x for x in self.selected_steps() if x.numbered]
         sel_clips = [x for x in sel if self._has_clip(x)]
         multi = len(sel) > 1
-        win = sys.platform == "win32"
+        win = audio.can_play()
         can_rec = ok and audio.available() and not playing
         self.btn_vrec.configure(state="normal" if can_rec else "disabled",
                                 text="\u25a0 Stop" if rec else ("\u25cf Re-record" if has else "\u25cf Record"))

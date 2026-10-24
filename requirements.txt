@@ -2,9 +2,10 @@
 pynput
 mss
 pillow
-uiautomation
+uiautomation ; sys_platform == "win32"
 python-docx
 reportlab
+sounddevice ; sys_platform != "win32"   # microphone on macOS / Linux (Windows uses built-in winmm)
 # optional
 pytesseract      # OCR redaction (also install the Tesseract program, see README)
 pystray          # tray icon

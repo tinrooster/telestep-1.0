@@ -7,6 +7,7 @@ own windows out of screenshots, machine details) goes through here.  One backend
   _windows.py   Win32 through ctypes
   _macos.py     macOS
   _generic.py   anything else (Linux): safe "nothing" answers, so the logic still runs and the tests pass
+  _audio_winmm.py / _audio_sd.py   microphone and playback (Windows winmm; sounddevice elsewhere), as `audio`
 
 Every call degrades to "nothing" (empty info, None, False) instead of raising, except open_path / reveal_file,
 which raise so the caller can say the folder could not be opened.
@@ -21,6 +22,13 @@ elif sys.platform == "darwin":
     from . import _macos as backend
 else:
     from . import _generic as backend
+
+# microphone and playback: available(), list_devices(), record(device, formats, on_open, on_chunk, stop), can_play(),
+# play(path), stop_playing(); DEFAULT_NAME (label of the default device), UNAVAILABLE (why there is no microphone)
+if sys.platform == "win32":
+    from . import _audio_winmm as audio
+else:
+    from . import _audio_sd as audio
 
 NAME = backend.NAME
 

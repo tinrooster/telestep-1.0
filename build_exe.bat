@@ -9,7 +9,7 @@ pyinstaller --onefile --windowed --name Telestep --icon assets\telestep.ico ^
   --collect-all uiautomation --collect-submodules pystray --hidden-import pystray._win32 --collect-data docx --collect-data reportlab ^
   --add-data "HELP.md;." --add-data "LICENSE;." --add-data "THIRD_PARTY_NOTICES.md;." ^
   --add-data "assets\telestep_logo_256.png;assets" --add-data "assets\telestep_icon_64.png;assets" ^
-  --hidden-import telestep_platform._windows --hidden-import telestep_help --hidden-import telestep_support ^
+  --hidden-import telestep_platform._windows --hidden-import telestep_platform._audio_winmm --hidden-import telestep_help --hidden-import telestep_support ^
   --hidden-import telestep_review --hidden-import telestep_report --hidden-import telestep_widgets --hidden-import telestep_settings --hidden-import telestep_privacy --hidden-import telestep_marks --hidden-import telestep_update --hidden-import telestep_audio --hidden-import telestep_player ^
   telestep.py
 rem SHA-256 of the finished exe, for allow-listing and for checking a copy later.

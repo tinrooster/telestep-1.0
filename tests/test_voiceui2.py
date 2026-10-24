@@ -3,7 +3,7 @@ exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "harness.py")
 import telestep_review as tr, telestep_audio as au, wave, struct, math
 from PIL import ImageGrab
 played=[]; au.play=lambda p:(played.append(str(p)) or True); au.stop_playing=lambda:played.append("STOP")
-tr.sys.platform="win32"
+au.can_play=lambda: True  # playback needs a backend that can play (winsound, afplay, sounddevice)
 root=tk.Tk(); root.geometry("+0+0")
 s=make_session(3,big=False)
 (s.dir/"audio").mkdir(exist_ok=True)
