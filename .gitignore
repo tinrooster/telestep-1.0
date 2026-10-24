@@ -9,6 +9,7 @@ venv/
 /Telestep/
 *_steps/
 session.json
+!tests/fixtures/**/session.json
 save_errors.log
 .idea/
 .vscode/
