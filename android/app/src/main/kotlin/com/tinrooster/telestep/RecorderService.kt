@@ -17,8 +17,9 @@ import java.io.File
 import java.util.concurrent.Executors
 
 /**
- * The step recorder.  Runs while the user has it switched on in Accessibility settings, but records nothing until a
- * recording is started (floating button or the app).  Taps, long presses, scrolls, typing and dialogs become steps in
+ * The step recorder.  Android keeps it running while it is switched on in Accessibility settings (also after a
+ * reboot), but it shows nothing and records nothing until the user starts a recording or asks for the floating button
+ * in the app.  "Turn off Telestep" in the app switches the service off again (disableSelf).  Taps, long presses, scrolls, typing and dialogs become steps in
  * a desktop-format session under the app's files folder.
  */
 class RecorderService : AccessibilityService() {
@@ -38,7 +39,7 @@ class RecorderService : AccessibilityService() {
     override fun onServiceConnected() {
         instance = this
         frames = FrameCache(this, main) { hiddenAreas() }
-        overlay = Overlay(this).also { it.show() }
+        overlay = Overlay(this)  // hidden until asked for: never pops up on its own, e.g. after a reboot
         notifyChanged()
     }
 
@@ -57,6 +58,7 @@ class RecorderService : AccessibilityService() {
     // ------------------------------------------------------------------ recording on / off
     fun startRecording(): Session {
         session?.let { if (recording) return it }
+        overlay?.show()  // the way to stop the recording
         val dir = File(Recordings.root(this), Session.dirName())
         val s = Session(dir, host = Recordings.deviceName(this), environment = Recordings.environment(this))
         s.makeDirs()
@@ -80,6 +82,27 @@ class RecorderService : AccessibilityService() {
         io.execute { s.save() }
         notifyChanged()
         return s
+    }
+
+    val buttonShown get() = overlay?.shown == true
+
+    fun showButton() {
+        overlay?.show()
+        notifyChanged()
+    }
+
+    /** Hide the floating button (not while recording: it is the way to stop). */
+    fun hideButton() {
+        if (recording) return
+        overlay?.remove()
+        notifyChanged()
+    }
+
+    /** Switch the whole service off, as the Accessibility settings switch would. */
+    fun turnOff() {
+        stopRecording()
+        overlay?.remove()
+        disableSelf()
     }
 
     fun toggleRecording() {

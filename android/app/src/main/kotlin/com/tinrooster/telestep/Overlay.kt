@@ -16,7 +16,7 @@ import kotlin.math.abs
 
 /**
  * The floating record button (an accessibility overlay, so no "draw over other apps" permission is needed).
- * Tap: start / stop.  Long press while recording: pause / resume.  Drag: move it.
+ * Tap: start / stop.  Long press: pause / resume while recording, hide the button when not.  Drag: move it.
  * It is blurred out of every screenshot.
  */
 class Overlay(private val service: RecorderService) {
@@ -34,7 +34,8 @@ class Overlay(private val service: RecorderService) {
         x = dm.widthPixels - size - size / 4
         y = dm.heightPixels / 3
     }
-    private var shown = false
+    var shown = false
+        private set
 
     @SuppressLint("ClickableViewAccessibility")
     fun show() {
@@ -85,9 +86,9 @@ class Overlay(private val service: RecorderService) {
         private var moved = false
         private var longDone = false
         private val longPress = Runnable {
-            if (!moved && service.recording) {
+            if (!moved) {
                 longDone = true
-                service.togglePause()
+                if (service.recording) service.togglePause() else service.hideButton()
             }
         }
 

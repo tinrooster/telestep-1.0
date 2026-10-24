@@ -20,6 +20,8 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var btnService: Button
     private lateinit var btnRecord: Button
+    private lateinit var btnButton: Button
+    private lateinit var btnOff: Button
     private lateinit var list: LinearLayout
     private val onServiceChange: () -> Unit = { runOnUiThread { refresh() } }
 
@@ -53,8 +55,23 @@ class MainActivity : Activity() {
             }
         }
         col.addView(btnRecord, margins(top = 8))
-        col.addView(text("While recording, tap the floating button to stop, press and hold it to pause, drag it to " +
-            "move it.", 13f, gray = true))
+        btnButton = Button(this).apply {
+            setOnClickListener {
+                val svc = RecorderService.instance ?: return@setOnClickListener
+                if (svc.buttonShown) svc.hideButton() else svc.showButton()
+            }
+        }
+        col.addView(btnButton)
+        col.addView(text("Floating button: tap to start or stop a recording, press and hold to pause (or, when not " +
+            "recording, to hide it), drag to move it. It only appears when you start a recording or show it here.",
+            13f, gray = true))
+        btnOff = Button(this).apply {
+            text = "Turn off Telestep"
+            setOnClickListener { RecorderService.instance?.turnOff() }
+        }
+        col.addView(btnOff, margins(top = 8))
+        col.addView(text("Switches the recorder off completely (it stays off after a restart). Turn it on again in " +
+            "Accessibility settings when you next want to record.", 13f, gray = true))
 
         col.addView(text("Typed text", 16f, bold = true), margins(top = 20))
         val prefs = Prefs.of(this)
@@ -108,9 +125,14 @@ class MainActivity : Activity() {
             svc.recording -> "Recording… ${svc.session?.steps?.size ?: 0} steps so far."
             else -> "Ready. Start a recording here or with the floating button."
         }
-        btnService.visibility = if (svc == null) View.VISIBLE else View.GONE
-        btnRecord.isEnabled = svc != null
+        val on = svc != null
+        btnService.visibility = if (on) View.GONE else View.VISIBLE
+        btnRecord.isEnabled = on
         btnRecord.text = if (svc?.recording == true) "Stop recording" else "Start recording"
+        btnButton.visibility = if (on) View.VISIBLE else View.GONE
+        btnButton.isEnabled = svc?.recording != true
+        btnButton.text = if (svc?.buttonShown == true) "Hide floating button" else "Show floating button"
+        btnOff.visibility = if (on) View.VISIBLE else View.GONE
         showRecordings()
     }
 

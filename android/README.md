@@ -31,9 +31,17 @@ from a file rather than from Google Play (Play restricts accessibility services 
 
 ## Record
 
-- Tap the floating button (blue with a red dot) to start; it turns red. Do the steps.
-- Tap it again to stop. Press and hold to pause and resume. Drag it anywhere.
-- Or use **Start recording** in the app.
+- In the app, tap **Start recording** (or **Show floating button**, then tap the button: blue with a red dot).
+  It turns red. Do the steps.
+- Tap the floating button to stop. Press and hold it to pause and resume. Drag it anywhere.
+- When not recording, press and hold the button to hide it. It never appears on its own (for example after a restart).
+
+## Turn it off
+
+Android keeps an accessibility service running while it is switched on, also after a restart. To switch Telestep off
+completely, tap **Turn off Telestep** in the app (or switch it off in **Settings > Accessibility**). Turn it on again in
+Accessibility settings next time. Telestep does not appear in the recent-apps switcher: the recorder is a service,
+not an open screen.
 
 ## Open a recording on your PC
 
