@@ -18,7 +18,7 @@ from a file rather than from Google Play (Play restricts accessibility services 
 - **Dialogs** that pop up become a step with their text.
 - **Passwords** are never recorded, and password fields are blurred in every screenshot. Apps that block screenshots
   (banking apps, for example) give a step without a picture.
-- Telestep's own floating button is blurred out of the screenshots.
+- Telestep's own floating button blinks out for the moment each screenshot is taken, so it never appears in one.
 
 ## Install
 

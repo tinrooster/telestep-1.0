@@ -22,11 +22,16 @@ class Shot(val bitmap: Bitmap, val hide: List<Rect>, val atMs: Long)
  * Accessibility tap events arrive after the tap, when the app may already be changing the screen, so the picture for
  * a step is the one taken when the screen last settled.  takeScreenshot is limited to about three a second, so
  * requests are spaced out and screen changes are debounced.
+ *
+ * Our own floating button is kept out of the pictures by making it invisible for the moment of the screenshot
+ * ([ownViews]); blurring it by position failed on real phones, where the reported window position was off by the
+ * status bar.
  */
 class FrameCache(
     private val service: AccessibilityService,
     private val main: Handler,
     private val hideRects: () -> List<Rect>,
+    private val ownViews: (visible: Boolean) -> Unit = {},
 ) {
     @Volatile
     var latest: Shot? = null
@@ -68,27 +73,40 @@ class FrameCache(
         } catch (e: Exception) {
             emptyList()
         }
-        service.takeScreenshot(Display.DEFAULT_DISPLAY, service.mainExecutor,
-            object : AccessibilityService.TakeScreenshotCallback {
-                override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
-                    val buffer = result.hardwareBuffer
-                    val bmp = try {
-                        Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)?.copy(Bitmap.Config.ARGB_8888, false)
-                    } finally {
-                        buffer.close()
-                    }
-                    if (bmp != null && running) done(Shot(bmp, hide, SystemClock.uptimeMillis()))
-                }
+        ownViews(false)
+        main.postDelayed({ take(hide, done) }, HIDE_MS)  // give the change a few frames to reach the screen
+    }
 
-                override fun onFailure(errorCode: Int) {
-                    // Secure windows (banking apps, lock screen) refuse screenshots: the step is kept without one.
-                }
-            })
+    private fun take(hide: List<Rect>, done: (Shot) -> Unit) {
+        try {
+            service.takeScreenshot(Display.DEFAULT_DISPLAY, service.mainExecutor, Taken(hide, done))
+        } catch (e: Exception) {
+            ownViews(true)
+        }
+    }
+
+    private inner class Taken(val hide: List<Rect>, val done: (Shot) -> Unit) : AccessibilityService.TakeScreenshotCallback {
+        override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+            ownViews(true)
+            val buffer = result.hardwareBuffer
+            val bmp = try {
+                Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)?.copy(Bitmap.Config.ARGB_8888, false)
+            } finally {
+                buffer.close()
+            }
+            if (bmp != null && running) done(Shot(bmp, hide, SystemClock.uptimeMillis()))
+        }
+
+        override fun onFailure(errorCode: Int) {
+            // Secure windows (banking apps, lock screen) refuse screenshots: the step is kept without one.
+            ownViews(true)
+        }
     }
 
     companion object {
         const val SETTLE_MS = 300L
         const val MIN_INTERVAL_MS = 350L
+        const val HIDE_MS = 48L
     }
 }
 

@@ -6,7 +6,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
-import android.graphics.Rect
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -17,7 +16,7 @@ import kotlin.math.abs
 /**
  * The floating record button (an accessibility overlay, so no "draw over other apps" permission is needed).
  * Tap: start / stop.  Long press: pause / resume while recording, hide the button when not.  Drag: move it.
- * It is blurred out of every screenshot.
+ * It blinks out for the moment each screenshot is taken, so it never appears in a picture.
  */
 class Overlay(private val service: RecorderService) {
     private val wm = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -65,16 +64,9 @@ class Overlay(private val service: RecorderService) {
         view.invalidate()
     }
 
-    /**
-     * Where the button really is on screen (what the screenshots show).  Not params.x/y: Android places the window
-     * below the status bar and keeps it inside the screen, so the requested position can be well off.
-     */
-    fun screenRect(): Rect? {
-        if (!shown || !view.isAttachedToWindow) return null
-        val at = IntArray(2)
-        view.getLocationOnScreen(at)
-        val pad = size / 8  // the antialiased edge
-        return Rect(at[0] - pad, at[1] - pad, at[0] + view.width + pad, at[1] + view.height + pad)
+    /** Make the button invisible for the moment a screenshot is taken, and back. */
+    fun setVisibleForShot(visible: Boolean) {
+        view.visibility = if (visible) View.VISIBLE else View.INVISIBLE
     }
 
     private inner class Drag : View.OnTouchListener {

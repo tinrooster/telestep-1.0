@@ -38,7 +38,7 @@ class RecorderService : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
-        frames = FrameCache(this, main) { hiddenAreas() }
+        frames = FrameCache(this, main, { passwordAreas() }, { visible -> overlay?.setVisibleForShot(visible) })
         overlay = Overlay(this)  // hidden until asked for: never pops up on its own, e.g. after a reboot
         notifyChanged()
     }
@@ -218,11 +218,8 @@ class RecorderService : AccessibilityService() {
         Place(pkg, "", "")
     }
 
-    /** Password fields on screen, and our own floating button: hidden in every screenshot. */
-    private fun hiddenAreas(): List<Rect> {
-        val roots = windows.mapNotNull { it.root }
-        return passwordRects(roots) + listOfNotNull(overlay?.screenRect())
-    }
+    /** Password fields on screen: blurred in every screenshot. */
+    private fun passwordAreas(): List<Rect> = passwordRects(windows.mapNotNull { it.root })
 
     companion object {
         const val AFTER_MS = 700L
