@@ -29,6 +29,8 @@ preferred = ""  # microphone name chosen in Settings > Audio (the app keeps this
 
 _mic = plat.audio
 DEFAULT_NAME = _mic.DEFAULT_NAME
+UNAVAILABLE = _mic.UNAVAILABLE  # why there is no microphone ('voice recording needs Windows')
+NEEDS = _mic.NEEDS  # the same, short
 available = _mic.available
 list_devices = _mic.list_devices  # [(id, name)] of the recording devices
 
@@ -62,7 +64,7 @@ class Narrator:
     # ---- the microphone (all sound-card calls happen in _run)
     def start(self):
         if not available():
-            return False, _mic.UNAVAILABLE
+            return False, UNAVAILABLE
         self._thread = threading.Thread(target=self._run, name="telestep-mic", daemon=True)
         self._thread.start()
         self._opened.wait(6)

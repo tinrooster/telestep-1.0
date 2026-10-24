@@ -1038,7 +1038,7 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
             self.var_vinfo.set(f"{audio.duration(self.s.dir / st.audio):.0f} s")
             self.pb_voice["value"] = 0
         elif ok and not audio.available():
-            self.var_vinfo.set("(needs Windows)")
+            self.var_vinfo.set(f"({audio.NEEDS})")
         else:
             self.var_vinfo.set("none" if ok else "")
             self.pb_voice["value"] = 0

@@ -18,7 +18,7 @@ app.var_cfg.set(True); app.toggle_config(); app.nb.select(app.tab_audio); root.u
 check("audio tab exists", str(app.tab_audio) in app.nb.tabs())
 check("mic defaults off", app.var_narrate.get() is False)
 check("device default", app.var_audio_dev.get()==ta.DEFAULT_NAME and ta.preferred=="")
-check("no-windows message", "Windows" in app.var_atest.get() and app.btn_atest.instate(["disabled"]), app.var_atest.get())
+check("no-mic message", ta.UNAVAILABLE[1:] in app.var_atest.get() and app.btn_atest.instate(["disabled"]), app.var_atest.get())
 check("settings keys", app.record_opts().narrate is False)
 d=dict(app.data); 
 check("saved device blank for default", telestep.cfg.DEFAULTS["audio_device"]=="" and "audio_device" not in telestep.cfg.PRESET_KEYS)

@@ -31,6 +31,10 @@ else:
     from . import _audio_sd as audio
 
 NAME = backend.NAME
+SYSTEM_NAME = backend.SYSTEM_NAME              # 'Windows', 'macOS', 'The system' (for messages)
+SOUND_SETTINGS = backend.SOUND_SETTINGS        # where microphones are set up, as messages name it
+SOUND_LINKS = backend.SOUND_LINKS              # ((button label, URI for open_path), ...) for Settings > Audio
+SOUND_HELP = backend.SOUND_HELP                # what to tell the user when a link can't be opened
 
 # process setup
 set_dpi_aware = backend.set_dpi_aware

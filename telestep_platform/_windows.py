@@ -9,6 +9,10 @@ from pathlib import Path
 from .common import EMPTY_INFO, SKIP_TITLES, box, parse_hotkey
 
 NAME = "windows"
+SYSTEM_NAME = "Windows"
+SOUND_SETTINGS = "Windows sound settings"  # how messages refer to the place where microphones are set up
+SOUND_LINKS = (("Windows sound settings", "ms-settings:sound"), ("Microphone privacy", "ms-settings:privacy-microphone"))
+SOUND_HELP = "Open Windows Settings > System > Sound (or Privacy > Microphone)."
 DIALOG_CLASSES = {"#32770"}  # window class of standard Windows dialogs and message boxes
 
 

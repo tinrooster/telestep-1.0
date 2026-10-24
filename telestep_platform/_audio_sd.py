@@ -11,6 +11,7 @@ import wave
 NAME = "sounddevice"
 DEFAULT_NAME = "Default (System Settings)" if sys.platform == "darwin" else "Default (system setting)"
 UNAVAILABLE = "voice recording needs the sounddevice package (pip install sounddevice)"
+NEEDS = "needs sounddevice"  # short form, for a status line
 
 _sd = False  # not tried yet; None = unavailable; else the module
 

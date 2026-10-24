@@ -9,6 +9,7 @@ from ctypes import wintypes
 NAME = "winmm"
 DEFAULT_NAME = "Default (Windows sound setting)"
 UNAVAILABLE = "voice recording needs Windows"
+NEEDS = "needs Windows"  # short form, for a status line
 WAVE_MAPPER = 0xFFFFFFFF  # "the Windows default recording device"
 
 try:

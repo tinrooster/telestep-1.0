@@ -26,6 +26,12 @@ for b in ("_windows.py", "_macos.py", "_generic.py"):
     missing = api - names(b)
     check(f"{b} has the whole API", not missing, sorted(missing))
 
+audio_api = {"NAME", "DEFAULT_NAME", "UNAVAILABLE", "NEEDS", "available", "list_devices", "record", "can_play",
+             "play", "stop_playing"}
+for b in ("_audio_winmm.py", "_audio_sd.py"):
+    missing = audio_api - names(b)
+    check(f"{b} has the whole audio API", not missing, sorted(missing))
+
 import telestep_platform as plat, telestep_core as core
 check("backend chosen", plat.NAME in ("windows", "macos", "generic"), plat.NAME)
 check("core re-exports", core.window_info is plat.window_info and core.HotkeyListener is plat.HotkeyListener)

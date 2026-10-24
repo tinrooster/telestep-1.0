@@ -11,6 +11,10 @@ from .common import EMPTY_INFO, parse_hotkey  # noqa: F401  (parse_hotkey: same 
 
 NAME = "generic"
 OPENER = "xdg-open"
+SYSTEM_NAME = "The system"
+SOUND_SETTINGS = "your system's sound settings"
+SOUND_LINKS = ()
+SOUND_HELP = "Open your system's sound settings."
 DIALOG_CLASSES = set()
 
 

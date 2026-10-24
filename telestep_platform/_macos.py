@@ -14,6 +14,11 @@ from ._generic import (DIALOG_CLASSES, EMPTY_INFO, HotkeyListener, app_details, 
                        window_info, window_rect, work_area_at)
 
 NAME = "macos"
+SYSTEM_NAME = "macOS"
+SOUND_SETTINGS = "System Settings > Sound"
+SOUND_LINKS = (("Sound settings", "x-apple.systempreferences:com.apple.preference.sound?input"),
+               ("Microphone privacy", "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"))
+SOUND_HELP = "Open System Settings > Sound > Input (or Privacy & Security > Microphone)."
 
 
 def _out(*cmd):
