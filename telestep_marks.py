@@ -65,7 +65,11 @@ class MarkMixin:
         ttk.Button(tb, text="Clear marks", command=self.clear_marks).pack(side="right")
         ttk.Button(tb, text="Undo mark", command=self.undo_mark).pack(side="right", padx=(0, 4))
         ttk.Checkbutton(tb, text="Keep tool", variable=self.var_keep, command=self.show_preview).pack(side="right", padx=(0, 10))
+        self._marktb = tb
         return tb
+
+    def _mark_toolbars(self):
+        return [self._marktb] if getattr(self, "_marktb", None) else []
 
     # ------------------------------------------------------------------ coordinates
     def _to_image(self, x, y):

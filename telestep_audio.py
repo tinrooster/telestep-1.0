@@ -104,8 +104,13 @@ class Narrator:
 
     FORMATS = ((RATE, 1), (22050, 1), (44100, 1), (44100, 2))  # tried in turn: speech-sized first
 
-    def __init__(self, device=None):
+    def __init__(self, device=None, raw=None):
+        """raw = a file to stream the recording into as it goes (crash-safe; recover() can rescue it).  Without it the
+        recording is kept in memory (fine for a short voice note or a test)."""
         self.device = preferred if device is None else device
+        self.raw = Path(raw) if raw else None
+        self._fh = None
+        self._nbytes = 0
         self.start_dt = None
         self.pauses = []  # [(paused_at, resumed_at or None)]
         self.running = False
@@ -170,7 +175,7 @@ class Narrator:
                         chunk = buf.raw[:h.dwBytesRecorded]
                         self.level = min(1.0, _peak(chunk, 2) / 12000.0)  # speech rarely peaks above ~12000
                         if not self._muted:
-                            self._data += chunk
+                            self._append(chunk)
                         h.dwBytesRecorded = 0
                         _winmm.waveInAddBuffer(hwi, ctypes.byref(h), ctypes.sizeof(h))
                 if not got:
@@ -191,6 +196,24 @@ class Narrator:
             self._opened.set()
             self.level = 0.0
 
+    def _append(self, chunk):
+        """Keep a chunk of audio: appended to the raw file on disk (flushed), or held in memory."""
+        self._nbytes += len(chunk)
+        if self.raw is None:
+            self._data += chunk
+            return
+        try:
+            if self._fh is None:
+                self.raw.parent.mkdir(parents=True, exist_ok=True)
+                self._fh = open(self.raw, "wb")
+                rate, ch = self.format or (RATE, 1)
+                Path(str(self.raw) + ".fmt").write_text(f"{rate} {ch}", encoding="ascii")
+            self._fh.write(chunk)
+            self._fh.flush()
+        except OSError as e:
+            self.error = f"could not write to disk: {e}"
+            self.raw, self._data = None, bytearray(chunk)  # carry on in memory rather than lose the rest
+
     def pause(self):
         if self.running and not self._muted:
             self._muted = True
@@ -210,27 +233,50 @@ class Narrator:
         self._stop.set()
         if self._thread:
             self._thread.join(3)
-        if self.error and not self._data:
+        if self._fh:
+            try:
+                self._fh.close()
+            except OSError:
+                pass
+            self._fh = None
+        if not self._nbytes:
+            self.error = self.error or "the microphone delivered no audio"
             return False
-        if not self._data:
-            self.error = "the microphone delivered no audio"
-            return False
+        rate, ch = self.format or (RATE, 1)
         try:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-            rate, ch = self.format or (RATE, 1)
-            with wave.open(str(path), "wb") as w:
-                w.setnchannels(ch)
-                w.setsampwidth(2)
-                w.setframerate(rate)
-                w.writeframes(bytes(self._data))
+            if self.raw is not None and self.raw.exists():
+                raw_to_wav(self.raw, rate, ch, path)
+                self._drop_raw()
+            else:
+                with wave.open(str(path), "wb") as w:
+                    w.setnchannels(ch)
+                    w.setsampwidth(2)
+                    w.setframerate(rate)
+                    w.writeframes(bytes(self._data))
         except OSError as e:
             self.error = f"could not write the file: {e}"
             return False
         return True
 
+    def _drop_raw(self):
+        for f in (self.raw, Path(str(self.raw) + ".fmt")):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+
     def cancel(self):
         self.running = False
         self._stop.set()
+        if self._fh:
+            try:
+                self._fh.close()
+            except OSError:
+                pass
+            self._fh = None
+        if self.raw is not None:
+            self._drop_raw()
 
     # ---- where in the recording a moment falls
     def pos_at(self, when):
@@ -438,6 +484,62 @@ def join_clips(paths, dest):
         return True
     except (OSError, wave.Error):
         return False
+
+
+def raw_to_wav(raw, rate, ch, dest):
+    """Wrap a raw 16-bit PCM file in a WAV header (copied in pieces, so long recordings stay cheap)."""
+    with open(raw, "rb") as src, wave.open(str(dest), "wb") as w:
+        w.setnchannels(ch)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        while True:
+            chunk = src.read(1 << 20)
+            if not chunk:
+                break
+            w.writeframes(chunk[: len(chunk) // (2 * ch) * (2 * ch)])
+
+
+def recover(session_dir):
+    """Rescue the narration of a recording that was interrupted (crash, power cut): turns audio/narration.raw into
+    audio/narration.wav.  Returns the wav path, or None when there is nothing to recover."""
+    adir = Path(session_dir) / "audio"
+    raw, fmt, wav = adir / "narration.raw", adir / "narration.raw.fmt", adir / "narration.wav"
+    if not raw.exists():
+        return None
+    try:
+        if raw.stat().st_size < 2000:
+            raw.unlink()
+            fmt.unlink(missing_ok=True)
+            return None
+        rate, ch = (int(x) for x in fmt.read_text(encoding="ascii").split()) if fmt.exists() else (RATE, 1)
+        raw_to_wav(raw, rate, ch, wav)
+        raw.unlink()
+        fmt.unlink(missing_ok=True)
+        return wav
+    except (OSError, ValueError, wave.Error):
+        return None
+
+
+def recover_session(session, mode="next"):
+    """If the recording was interrupted while narrating, rescue the audio and cut it into the steps' clips.
+    Returns the number of clips made, or None when there was nothing to recover."""
+    wav = recover(session.dir)
+    if not wav:
+        return None
+    marks, last = [], 0.0
+    for st in session.steps:
+        if st.numbered and st.apos >= 0:
+            last = max(last, st.apos)
+            marks.append((st.id, last))
+    made = 0
+    if marks:
+        for sid, fn in smart_clips(wav, marks, session.dir / "audio", mode).items():
+            st = session.find(sid)
+            if st:
+                st.audio = f"audio/{fn}"
+                made += 1
+        session.save()
+    return made
 
 
 def describe(path):

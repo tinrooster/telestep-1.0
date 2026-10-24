@@ -105,6 +105,18 @@ class Tray:
         except Exception:
             self.icon = None
 
+    def set_hint(self, state, mic=False):
+        """Hover text of the tray icon: what Telestep is doing and whether the microphone is open."""
+        if self.icon:
+            try:
+                txt = {"idle": "Telestep - not recording", "rec": "Telestep - RECORDING",
+                       "paused": "Telestep - paused"}.get(state, "Telestep")
+                if state != "idle":
+                    txt += " (microphone ON)" if mic else " (microphone off)"
+                self.icon.title = txt
+            except Exception:
+                pass
+
     def set_state(self, state):
         if self.icon:
             try:
@@ -125,6 +137,8 @@ class App:
     def __init__(self, root, settings_path=None):
         self.root = root
         self.settings_path = settings_path
+        self._fresh = not Path(settings_path or cfg.settings_path()).exists()  # first ever run on this machine
+        self.policy = cfg.policy()  # administrator defaults / locks (empty unless a policy file exists)
         self.data = cfg.load(settings_path)
         self.rec = None
         self._saving = None
@@ -317,6 +331,8 @@ class App:
         self._apply_opacity()
         self._sync_mode()
         self.root.after(6000, self._maybe_check_updates)
+        if self._fresh and not self.data.get("welcomed"):
+            self.root.after(700, self._first_run)
         if self.var_tray.get():
             self.tray.start()
         self.poll()
@@ -350,8 +366,14 @@ class App:
         self._grid(t, 2, "Preset", p)
         self._grid(t, 3, "", ttk.Checkbutton(t, text="Open the review editor after Stop (edit, then export)",
                                              variable=self.var_review), span=1)
-        ttk.Label(t, text="Presets remember capture area, masks, privacy and report settings.",
+        ttk.Label(t, text="Presets remember capture area, masks, privacy and report settings. Starred presets are "
+                          "ready-made and change only what they list.", wraplength=int(330 * self.scale), justify="left",
                   foreground="gray").grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        nlock = len(self.policy.get("locked") or {})
+        if nlock or self.policy.get("disable_audio") or self.policy.get("defaults"):
+            ttk.Label(t, text="\u26bf Some settings are managed by your organisation" +
+                              (f" ({nlock} locked)." if nlock else "."), foreground="#8a5a00"
+                      ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
     def _tab_capture(self):
         t = self.tab_capture
@@ -510,6 +532,10 @@ class App:
         ttk.Label(t, text="Voice is saved as-is: the hide tools and the privacy check do not cover it.",
                   foreground="gray", wraplength=int(330 * self.scale), justify="left"
                   ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        if self.policy.get("disable_audio"):
+            for wd in (self.cmb_audio, self.btn_atest):
+                wd.state(["disabled"])
+            self.var_atest.set("Voice recording is turned off by your administrator.")
         self._atest = None  # (Narrator, started_at, peak) while testing
         self._atest_file = None
         self._audio_refresh()
@@ -520,6 +546,9 @@ class App:
     def _audio_refresh(self):
         names = self._audio_names()
         self.cmb_audio.configure(values=names)
+        if self.policy.get("disable_audio"):
+            self.var_atest.set("Voice recording is turned off by your administrator.")
+            return
         if self.var_audio_dev.get() not in names:
             self.var_audio_dev.set(ta.DEFAULT_NAME)  # the chosen microphone is not plugged in right now
         if not ta.available():
@@ -972,7 +1001,7 @@ class App:
             "after_mode": AFTER[self.var_after.get()], "after_delay_ms": self._int(self.var_delay, 700),
             "max_width": self._int(self.var_width, 1600), "dbl": self.var_dbl.get(), "drag": self.var_drag.get(),
             "scroll": self.var_scroll.get(), "shortcuts": self.var_shortcuts.get(),
-            "watch_dialogs": self.var_dialogs.get(), "narrate": self.var_narrate.get(), "mouse_path": self.var_mpath.get(), "audio_assign": self.var_assign.get(),
+            "watch_dialogs": self.var_dialogs.get(), "welcomed": bool(self.data.get("welcomed", False)), "narrate": self.var_narrate.get(), "mouse_path": self.var_mpath.get(), "audio_assign": self.var_assign.get(),
             "audio_device": "" if self.var_audio_dev.get() == ta.DEFAULT_NAME else self.var_audio_dev.get(), "masks": [m.to_dict() for m in self.masks],
             "mask_style": self.style_key(), "key_mode": KEYS[self.var_keys.get()],
             "ocr": {k: v.get() for k, v in self.var_ocr.items()}, "ocr_labels": self.var_ocr_labels.get(), "ocr_enabled": self.var_ocr_on.get(), "formats": {k: v.get() for k, v in self.var_fmt.items()},
@@ -1061,15 +1090,20 @@ class App:
 
     # ---- presets ----
     def refresh_presets(self):
-        names = sorted(self.data["presets"])
-        self.cmb_preset["values"] = ["(none)"] + names
-        if self.var_preset.get() not in ["(none)"] + names:
+        names = ["(none)"] + cfg.builtin_names() + sorted(self.data["presets"])
+        self.cmb_preset["values"] = names
+        if self.var_preset.get() not in names:
             self.var_preset.set("(none)")
 
     def load_preset(self):
         name = self.var_preset.get()
-        if name in self.data["presets"]:
+        key = cfg.builtin_key(name) if name not in self.data["presets"] else None
+        if key:  # ready-made: changes only what it lists, the rest of your settings stay
+            self.apply(cfg.with_builtin(self.gather(), key))
+            self.toast(cfg.BUILTIN_PRESETS[key]["info"], 6)
+        elif name in self.data["presets"]:
             self.apply(self.data["presets"][name])
+        self._enforce_policy()
 
     def save_preset(self, name=None):
         name = name or simpledialog.askstring(TITLE, "Preset name:", parent=self.root)
@@ -1083,11 +1117,58 @@ class App:
 
     def delete_preset(self):
         name = self.var_preset.get()
+        if name not in self.data["presets"] and cfg.builtin_key(name):
+            self.toast("Ready-made presets (marked with a star) can't be deleted; use Save as... to make your own copy.", 5)
+            return
         if name in self.data["presets"]:
             del self.data["presets"][name]
             self.var_preset.set("(none)")
             self.refresh_presets()
             self.persist()
+
+    # ---- first run ----
+    def _first_run(self):
+        """A one-time, non-blocking 'what will you record?' chooser: picks a ready-made preset (changeable any time)."""
+        if self.data.get("welcomed") or self.rec:
+            return
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Welcome to Telestep")
+        dlg.transient(self.root)
+        dlg.resizable(False, False)
+        frm = ttk.Frame(dlg, padding=14)
+        frm.pack()
+        ttk.Label(frm, text="What will you mostly record?", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        ttk.Label(frm, text="This just picks starting settings. You can change anything later in Settings.",
+                  foreground="gray").pack(anchor="w", pady=(0, 8))
+
+        def pick(key):
+            dlg.destroy()
+            if key:
+                self.var_preset.set(cfg.BUILTIN_PREFIX + key)
+                self.load_preset()
+            self.data["welcomed"] = True
+            self.persist()
+
+        for key, spec in cfg.BUILTIN_PRESETS.items():
+            row = ttk.Frame(frm)
+            row.pack(fill="x", pady=3)
+            ttk.Button(row, text=key, width=20, command=lambda k=key: pick(k)).pack(side="left")
+            ttk.Label(row, text=spec["info"], wraplength=int(300 * self.scale), justify="left", foreground="#4a5560"
+                      ).pack(side="left", padx=10)
+        ttk.Button(frm, text="Skip - I'll choose in Settings", command=lambda: pick(None)).pack(anchor="e", pady=(8, 0))
+        dlg.protocol("WM_DELETE_WINDOW", lambda: pick(None))
+        dlg.update_idletasks()
+        x = self.root.winfo_rootx() + 20
+        y = self.root.winfo_rooty() + self.root.winfo_height() + 10
+        dlg.geometry(f"+{x}+{y}")
+        self._welcome = dlg
+
+    # ---- administrator policy ----
+    def _enforce_policy(self):
+        """Put every locked option back (a person can't change them in Settings: they snap back)."""
+        locked = self.policy.get("locked") or {}
+        if locked:
+            self.apply(cfg.merge(self.gather(), locked))
 
     # ------------------------------------------------------------------ toolbar position
     def place_toolbar(self):
@@ -1141,6 +1222,7 @@ class App:
         if hasattr(self, "c_icon"):
             self._compact_refresh()
         self.tray.set_state(state)
+        self.tray.set_hint(state, bool(self.rec and self.rec.mic_on and not self.rec.paused))
         self.update_summary()
 
     def _ocr_sync(self):
@@ -1340,7 +1422,7 @@ class App:
             key_mode=KEYS[self.var_keys.get()], max_width=self._int(self.var_width, 1600),
             after_mode=AFTER[self.var_after.get()], after_delay_ms=self._int(self.var_delay, 700),
             dbl=self.var_dbl.get(), drag=self.var_drag.get(), scroll=self.var_scroll.get(),
-            shortcuts=self.var_shortcuts.get(), watch_dialogs=self.var_dialogs.get(), narrate=self.var_narrate.get(), audio_assign=self.var_assign.get(),
+            shortcuts=self.var_shortcuts.get(), watch_dialogs=self.var_dialogs.get(), narrate=self.var_narrate.get() and not self.policy.get("disable_audio"), audio_assign=self.var_assign.get(),
             mouse_path=self.var_mpath.get(),
             ocr_kinds=[k for k, v in self.var_ocr.items() if v.get()] if self.var_ocr_on.get() else [], ocr_style=self.style_key(),
             wording=self.wording(), ocr_labels=self.var_ocr_labels.get() and self.var_ocr_on.get(), hotkeys=hk)
@@ -1348,6 +1430,7 @@ class App:
     def start(self):
         if self._saving:
             return
+        self._enforce_policy()
         mode, _ = self.current_mode()
         if mode == "region" and not self.region:
             self.ask("showerror", "Choose a custom area first (Settings > Capture > Select area).")
@@ -1388,6 +1471,9 @@ class App:
 
     def toggle_mic(self):
         """Narration on/off: the first click opens the microphone, later clicks mute and unmute it."""
+        if self.policy.get("disable_audio"):
+            self.toast("Voice recording is turned off by your administrator.", 5)
+            return
         if self.rec:
             if not self.rec.set_mic(not self.rec.mic_on):
                 return  # the reason arrives as a toast
@@ -1403,6 +1489,10 @@ class App:
             return
         self._mic_key = key
         self._pulse_i = -1
+        try:
+            self.tray.set_hint(self.state, bool(on))
+        except Exception:
+            pass
         if on:
             self._pulse_mic()
         else:

@@ -39,6 +39,10 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         a 'Looks good - create the ZIP' button (calls `on_done`) and Back (calls `on_cancel`)."""
         super().__init__(master)
         self.s = session
+        try:
+            self._recovered = audio.recover_session(session)  # leftovers of a crashed narration (rare)
+        except Exception:
+            self._recovered = None
         self.own_root = own_root
         self.support, self.on_done, self.on_cancel = support, on_done, on_cancel
         self.on_rule = on_rule  # callable(mask dict): remember a hide area for future recordings (main app)
@@ -601,7 +605,70 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         m.add_command(label="Move to bottom", command=lambda: self.move(10_000))
         m.add_separator()
         m.add_command(label="Re-cut voice notes...", command=self.recut_narration)
+        m.add_separator()
+        m.add_command(label="Save a share-safe copy (ZIP)...", command=self.share_copy)
+        m.add_command(label="Delete original screenshots and full narration...", command=self.delete_originals)
         return m
+
+    def _originals_gone(self):
+        return bool(self.s.settings.get("originals_removed"))
+
+    def share_copy(self):
+        """A ZIP with only what is safe to pass on: the exported files, their pictures, and the voice notes."""
+        if not self._has_outputs():
+            messagebox.showinfo("Telestep", "Export the recording first, then make the share-safe copy.", parent=self)
+            return
+        has_voice = any(self._has_clip(x) for x in self.s.steps)
+        inc = True
+        if has_voice:
+            inc = messagebox.askyesno(
+                "Telestep", "Include the voice-note files in the ZIP?\n\n(HTML reports and the narrated player already "
+                "have your voice built in; this only decides whether the separate audio files come too.)", parent=self)
+        dest = filedialog.asksaveasfilename(parent=self, title="Save share-safe copy", defaultextension=".zip",
+                                            initialfile=f"{self.s.dir.name}_share.zip",
+                                            filetypes=[("ZIP file", "*.zip")])
+        if not dest:
+            return
+        try:
+            rep.write_share_copy(self.s, dest, include_audio=inc)
+        except (ValueError, OSError) as e:
+            messagebox.showerror("Telestep", str(e), parent=self)
+            return
+        messagebox.showinfo("Telestep", "Saved. It contains the exported files and pictures only - not the original "
+                            "screenshots, the full narration, or the recording's session data.", parent=self)
+
+    def delete_originals(self):
+        if not self._has_outputs():
+            messagebox.showinfo("Telestep", "Export the recording first - the exported copies are what stays.", parent=self)
+            return
+        if self._originals_gone():
+            messagebox.showinfo("Telestep", f"The originals were already deleted ({self.s.settings['originals_removed']}).",
+                                parent=self)
+            return
+        if not messagebox.askyesno(
+                "Telestep", "Delete the ORIGINAL screenshots and the full narration recording?\n\n"
+                "Kept: the exported pictures, documents and voice notes (you can still re-export or edit captions).\n"
+                "Gone for good: the clean originals - you will no longer be able to hide areas, change marks or "
+                "re-cut the voice notes.\n\nExport again first if you changed anything.", icon="warning",
+                default="no", parent=self):
+            return
+        self._voice_stop_play()
+        n = rep.delete_originals(self.s)
+        self._edits += 1
+        self._lock_edit_tools()
+        self.refresh(select=self._cur.id if self._cur else None)
+        messagebox.showinfo("Telestep", f"Deleted {n} file(s).", parent=self)
+
+    def _lock_edit_tools(self):
+        """Hiding and marks need the originals: switch those controls off once they are gone."""
+        for tb in self._mark_toolbars():
+            for wd in tb.winfo_children():
+                try:
+                    wd.configure(state="disabled")
+                except tk.TclError:
+                    pass
+        self.var_hint.set("The original screenshots were deleted, so areas can't be hidden and marks can't be changed. "
+                          "Captions, comments and exports still work.")
 
     def recut_narration(self):
         """Split the saved narration recording into per-step clips again (e.g. with the other timing rule)."""
@@ -879,6 +946,10 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         """Tell the user what the hide tool will do, and to which screenshots."""
         if not hasattr(self, "var_hint"):
             return
+        if self._originals_gone():
+            self.var_hint.set("The original screenshots were deleted, so areas can't be hidden and marks can't be changed. "
+                              "Captions, comments and exports still work.")
+            return
         n = sum(1 for s in self.s.steps if s.raw)
         scope = f"ALL {n} screenshots" if self.var_all.get() else "this screenshot only"
         if self._sel_rect and self.btn_mask.cget("state") == "normal":
@@ -905,6 +976,8 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         return (l, t, r, b) if r - l >= 2 and b - t >= 2 else None
 
     def apply_mask(self, confirm=True):
+        if self._originals_gone():
+            return 0
         rect = self.selection_in_image()
         st = self._cur
         if not rect or not st:
@@ -1339,12 +1412,26 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
             if bad:
                 messagebox.showwarning("Telestep", "\n".join(lines) + f"\n\nDetails: {self.s.dir / 'save_errors.log'}",
                                        parent=self)
-            elif messagebox.askyesno("Telestep", "\n".join(lines) + f"\n\nSaved in:\n{self.s.dir}\n\nOpen the folder now?",
+            elif messagebox.askyesno("Telestep", "\n".join(lines) + self._size_note() + f"\n\nSaved in:\n{self.s.dir}\n\nOpen the folder now?",
                                      parent=self):
                 self.open_folder()
         if not any(str(v).startswith("FAILED") for v in self.exported.values()):
             self._exported_sig = self._state_sig()
         return self.exported
+
+    def _size_note(self):
+        """Mail servers often refuse attachments over ~25 MB: say so when a finished file is that big."""
+        big = []
+        for k, v in (self.exported or {}).items():
+            try:
+                if not str(v).startswith("FAILED") and Path(v).is_file() and Path(v).stat().st_size > 25 * 1024 * 1024:
+                    big.append(f"{rep.FORMATS.get(k, k)} ({Path(v).stat().st_size / 1048576:.0f} MB)")
+            except OSError:
+                pass
+        if not big:
+            return ""
+        return ("\n\nLarge file: " + ", ".join(big) + ". Many mail systems reject attachments over about 25 MB - "
+                "consider the PDF or Markdown format, fewer steps, or a share link.")
 
     def copy_text(self):
         self.save()

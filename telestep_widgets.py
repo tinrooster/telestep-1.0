@@ -4,11 +4,13 @@ screen overlays (capture frame / masks / taskbar), the area picker, note and win
 """
 import ctypes
 import json
+import os
+import shutil
 import sys
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
@@ -548,21 +550,28 @@ class SessionPicker(tk.Toplevel):
         frm.rowconfigure(1, weight=1)
         ttk.Label(frm, text="Pick a recording to review, edit or export (newest first):").grid(sticky="w")
         self.rows = list_sessions(self.base)
-        self.tree = ttk.Treeview(frm, columns=("when", "title", "steps"), show="headings", height=10, selectmode="browse")
-        for col, text, width in (("when", "Recorded", 120), ("title", "Title", 300), ("steps", "Steps", 50)):
+        self.tree = ttk.Treeview(frm, columns=("when", "title", "steps", "files", "size"), show="headings", height=10,
+                                 selectmode="browse")
+        for col, text, width in (("when", "Recorded", 120), ("title", "Title", 260), ("steps", "Steps", 50),
+                                 ("files", "Exported as", 150), ("size", "Size", 70)):
             self.tree.heading(col, text=text)
-            self.tree.column(col, width=width, anchor="e" if col == "steps" else "w", stretch=(col == "title"))
-        for i, (_d, when, title, n) in enumerate(self.rows):
-            self.tree.insert("", "end", iid=str(i), values=(when, title, n))
+            self.tree.column(col, width=width, anchor="e" if col in ("steps", "size") else "w", stretch=(col == "title"))
+        for i, (d, when, title, n) in enumerate(self.rows):
+            files, size = self._summary(d)
+            self.tree.insert("", "end", iid=str(i), values=(when, title, n, files, size))
         self.tree.grid(row=1, column=0, sticky="nsew", pady=(4, 4))
         ttk.Label(frm, text=f"In: {self.base}" if self.rows else f"No recordings found yet in: {self.base}",
                   foreground="gray").grid(row=2, sticky="w")
         btns = ttk.Frame(frm)
         btns.grid(row=3, sticky="e", pady=(8, 0))
-        ttk.Button(btns, text="Browse for another folder...", command=self.browse).grid(row=0, column=0, padx=(0, 12))
-        ttk.Button(btns, text="Cancel", command=self.destroy).grid(row=0, column=1, padx=(0, 6))
+        ttk.Button(btns, text="Browse for another folder...", command=self.browse).grid(row=0, column=0, padx=(0, 6))
+        self.btn_folder = ttk.Button(btns, text="Show folder", command=self.show_folder)
+        self.btn_folder.grid(row=0, column=1, padx=(0, 6))
+        self.btn_delete = ttk.Button(btns, text="Delete...", command=self.delete)
+        self.btn_delete.grid(row=0, column=2, padx=(0, 12))
+        ttk.Button(btns, text="Cancel", command=self.destroy).grid(row=0, column=3, padx=(0, 6))
         self.btn_open = ttk.Button(btns, text="Open", command=self.ok, state="normal" if self.rows else "disabled")
-        self.btn_open.grid(row=0, column=2)
+        self.btn_open.grid(row=0, column=4)
         self.tree.bind("<Double-Button-1>", lambda e: self.ok())
         self.bind("<Return>", lambda e: self.ok())
         self.bind("<Escape>", lambda e: self.destroy())
@@ -574,6 +583,58 @@ class SessionPicker(tk.Toplevel):
         self.tree.focus_set()
         self.grab_set()
         self.wait_window(self)
+
+    @staticmethod
+    def _summary(folder):
+        """('docx, html, player', '12.4 MB'): what was exported from this recording and how big the folder is."""
+        folder = Path(folder)
+        try:
+            import telestep_report as rep
+            have = [k for k, f in rep.OUTPUT_FILES.items() if (folder / f).exists()]
+        except Exception:
+            have = []
+        total = 0
+        try:
+            for root, _dirs, names in os.walk(folder):
+                for n in names:
+                    try:
+                        total += os.path.getsize(os.path.join(root, n))
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+        size = f"{total / 1048576:.1f} MB" if total >= 1048576 else f"{max(1, total // 1024)} KB"
+        return ", ".join(have) or "(not exported)", size
+
+    def _selected(self):
+        sel = self.tree.selection()
+        return (sel[0], self.rows[int(sel[0])][0]) if sel else (None, None)
+
+    def show_folder(self):
+        _iid, d = self._selected()
+        if d:
+            try:
+                os.startfile(str(d))  # Windows only
+            except Exception as e:
+                messagebox.showerror("Telestep", f"Could not open the folder:\n{e}", parent=self)
+
+    def delete(self):
+        """Delete a recording folder for good (asks first)."""
+        iid, d = self._selected()
+        if not d:
+            return
+        if not messagebox.askyesno(
+                "Telestep", f"Delete this recording and everything in it?\n\n{d}\n\nThis cannot be undone "
+                "(it does not go to the Recycle Bin).", icon="warning", default="no", parent=self):
+            return
+        try:
+            shutil.rmtree(d)
+        except OSError as e:
+            messagebox.showerror("Telestep", f"Could not delete it:\n{e}", parent=self)
+            return
+        self.tree.delete(iid)
+        if not self.tree.get_children():
+            self.btn_open.configure(state="disabled")
 
     def ok(self):
         sel = self.tree.selection()

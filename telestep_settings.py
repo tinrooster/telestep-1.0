@@ -25,10 +25,94 @@ DEFAULTS = {
     "hide_from_capture": True, "overlays": True, "toolbar_opacity": 100, "compact_toolbar": False, "toolbar_solid_hover": True, "toolbar_pos": None, "presets": {},
     # network (the only time Telestep uses the internet, and only when switched on)
     "update_check": False, "update_last": "",
+    "welcomed": False,  # the first-run "what will you record?" prompt has been answered
 }
 NESTED = ("ocr", "formats", "template", "hotkeys")
 # what a preset stores (everything except per-machine bits and the preset list itself)
-PRESET_KEYS = [k for k in DEFAULTS if k not in ("base_dir", "toolbar_pos", "presets", "update_check", "update_last", "audio_device")]
+PRESET_KEYS = [k for k in DEFAULTS if k not in ("base_dir", "toolbar_pos", "presets", "update_check", "update_last", "audio_device", "welcomed")]
+
+
+# Ready-made presets.  Unlike your own presets (which store everything), these change only the listed options and leave
+# the rest (hide areas, branding, hotkeys, toolbar choices) as they are.
+BUILTIN_PREFIX = "\u2605 "  # shown as "★ Quick docs"
+BUILTIN_PRESETS = {
+    "Quick docs": {
+        "info": "Mouse and screenshots only, friendly wording, a Word document.",
+        "set": {"narrate": False, "mouse_path": False, "after_mode": "off", "wording": "friendly", "key_mode": "none",
+                "watch_dialogs": False, "review_after_stop": True,
+                "formats": {"docx": True, "md": False, "html": False, "pdf": False, "txt": False, "runbook": False,
+                           "zip": False, "player": False},
+                "template": {"environment": False}},
+    },
+    "Support ticket": {
+        "info": "Before/after pictures, technical wording, secrets hidden, an HTML report plus a ZIP to attach.",
+        "set": {"narrate": False, "mouse_path": False, "after_mode": "pair", "wording": "technical", "key_mode": "count",
+                "watch_dialogs": True, "review_after_stop": True, "ocr_enabled": True,
+                "ocr": {"ip": True, "mac": True, "key": True, "email": True, "card": True, "ssn": True},
+                "formats": {"html": True, "zip": True, "md": False, "docx": False, "pdf": False, "txt": False,
+                           "runbook": False, "player": False},
+                "template": {"environment": True}},
+    },
+    "Narrated tutorial": {
+        "info": "Microphone on from the start, mouse movement recorded, exports a narrated player and an HTML report.",
+        "set": {"narrate": True, "mouse_path": True, "after_mode": "off", "wording": "friendly", "key_mode": "none",
+                "review_after_stop": True,
+                "formats": {"player": True, "html": True, "md": False, "docx": False, "pdf": False, "txt": False,
+                           "runbook": False, "zip": False},
+                "template": {"environment": False}},
+    },
+}
+
+
+def builtin_names():
+    return [BUILTIN_PREFIX + n for n in BUILTIN_PRESETS]
+
+
+def builtin_key(label):
+    """'★ Quick docs' -> 'Quick docs' (None when the label is not a built-in preset)."""
+    key = label[len(BUILTIN_PREFIX):] if label.startswith(BUILTIN_PREFIX) else label
+    return key if key in BUILTIN_PRESETS else None
+
+
+def with_builtin(settings, key):
+    """The settings with a built-in preset's changes laid over them."""
+    return merge(settings, BUILTIN_PRESETS[key]["set"])
+
+
+# ---- administrator policy: defaults and locked options pushed to a machine --------------------------------------
+POLICY_NAME = "telestep_policy.json"
+
+
+def policy_paths():
+    paths = []
+    pd = os.environ.get("PROGRAMDATA")
+    if pd:
+        paths.append(Path(pd) / "Telestep" / POLICY_NAME)  # machine-wide
+    paths.append(app_dir() / POLICY_NAME)  # next to the program (wins over the machine-wide file)
+    return paths
+
+
+def policy():
+    """{'defaults': {...}, 'locked': {...}, 'disable_audio': bool} from the policy file(s); empty when there is none.
+    defaults: used until the person saves their own choice.  locked: forced on every start and every recording."""
+    out = {"defaults": {}, "locked": {}, "disable_audio": False}
+    for p in policy_paths():
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(d, dict):
+            continue
+        for k in ("defaults", "locked"):
+            if isinstance(d.get(k), dict):
+                for kk, vv in d[k].items():
+                    if kk in DEFAULTS:
+                        out[k][kk] = vv
+        if d.get("disable_audio"):
+            out["disable_audio"] = True
+    if out["disable_audio"]:
+        out["locked"]["narrate"] = False
+    return out
 
 
 def app_dir():
@@ -74,10 +158,13 @@ def load(path=None):
     base = DEFAULTS
     if not path and portable():  # recordings go next to the program unless a folder was chosen
         base = dict(DEFAULTS, base_dir=str(app_dir() / "Recordings"))
+    pol = policy()
+    base = merge(base, pol["defaults"])
     try:
-        return merge(base, json.loads(p.read_text(encoding="utf-8")))
+        data = merge(base, json.loads(p.read_text(encoding="utf-8")))
     except (OSError, ValueError):
-        return merge(base, {})
+        data = merge(base, {})
+    return merge(data, pol["locked"]) if pol["locked"] else data
 
 
 def save(data, path=None):

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Share-safe copy: Review > More > "Save a share-safe copy (ZIP)..." packs only the exported files, their pictures and (optionally) the voice notes - never the original screenshots, the full narration or the session data. "Delete original screenshots and full narration..." removes the clean originals once you've exported (hide/marks/re-cut then switch off; captions and exports still work).
+- Crash-safe narration: the microphone is streamed to disk while recording, so a crash or power loss no longer loses the voice; the next time the recording is opened Telestep rebuilds the narration and the voice notes.
+- Built-in presets (Quick docs / Support ticket / Narrated tutorial) and a first-run "what will you record?" chooser; your own presets sit beside them.
+- Administrator policy file (`telestep_policy.json`, ProgramData or next to the exe): default settings, locked settings and `disable_audio`. Example in `telestep_policy.example.json`; see INSTALL.md "For IT".
+- Recent recordings list: the picker shows when each was exported, its size, and has Show folder / Delete.
+- Export warns when a finished file is over 25 MB (mail limits). The tray icon's hover text says whether the microphone is on.
+- Tests: `tests/` (run `python tests/run_tests.py`) and a GitLab CI pipeline (`.gitlab-ci.yml`). `build_exe.bat` writes a SHA-256 of the exe. LGPL notice reworded.
 - Optional mouse movement (Settings > Capture > Also record): the pointer path to each click is recorded (positions only, thinned) and the narrated player replays it as a gliding pointer with a click ripple, timed with the voice note; Pointer button to hide it. `--mouse-path` on the command line.
 - New export format "Narrated player (HTML)": the Play all walkthrough as one self-contained, offline file (screenshots shown while each voice note plays, auto-advance, controls, progress bar, step list, speed).
 - Review: Play now also works on several selected steps (their clips play one after another in list order, showing each step; the selection is restored afterwards). The open-mic icon pulse is much stronger (the disc swells and flashes with a rippling halo).

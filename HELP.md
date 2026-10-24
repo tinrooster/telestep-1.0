@@ -156,6 +156,17 @@ Privacy: the privacy check and hide tools work on pictures and text only. **Voic
 before sharing a recording. Needs Windows and a microphone that desktop apps are allowed to use (Settings > Privacy >
 Microphone). Command line: `--narrate`.
 
+## Presets, first run and recent recordings
+- **Presets** (Settings, top): *Quick docs*, *Support ticket* and *Narrated tutorial* are built in; they change only the options that matter (formats, wording, narration, mouse movement) and leave your other settings alone. Save your own with **Save preset**.
+- The first time Telestep starts it asks *what will you record?* and applies the matching preset. You can change it any time.
+- **Recent recordings** (the Review/folder picker) lists your recordings with when each was exported and how big it is; *Show folder* opens it, *Delete* removes it.
+- If Telestep or the PC crashes mid-recording, the voice is not lost: it is saved to disk as you talk, and the next time you open that recording Telestep rebuilds the narration and the voice notes.
+
+## Sharing safely
+*More > Save a share-safe copy (ZIP)* (after exporting) packs only the exported files, their pictures and, if you say so, the voice-note files. It leaves out the original screenshots, the full narration and the recording's session data.
+*More > Delete original screenshots and full narration* removes those originals from the recording folder once you no longer need them. Afterwards you can still edit captions and re-export, but you can't hide areas, change marks or re-cut voice notes. This can't be undone.
+Large files: Telestep warns when an export is over 25 MB, since many mail systems refuse that.
+
 ## Editing steps
 - **Merge**: select two or more steps (Ctrl+click or Shift+click) and use *More > Merge selected steps* (or right-click).
   The captions are joined ("Click File, then click Save"), the first screenshot is kept and the last one becomes the

@@ -152,7 +152,59 @@ def _render_images(session, focus="off"):
             Image.open(session.dir / s.raw_after).convert("RGB").save(session.dir / rel, "JPEG", quality=88)
             s.image_after = rel
             keep.add(Path(rel).name)
+        elif s.image_after and (session.dir / s.image_after).exists():  # originals deleted: the exported copy stays
+            keep.add(Path(s.image_after).name)
     return keep
+
+
+def write_share_copy(session, dest, include_audio=True):
+    """A ZIP that is safe to hand to someone else: the exported documents and their pictures, and (optionally) the
+    voice-note files.  Never the original screenshots, the full narration recording, session.json or the machine
+    details file.  Returns the path.  Raises ValueError when nothing has been exported yet."""
+    import zipfile
+    names = [f for f in OUTPUT_FILES.values() if (session.dir / f).exists()]
+    if not names:
+        raise ValueError("Export the recording first (nothing has been exported yet).")
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in names:
+            z.write(session.dir / f, f)
+        if (session.dir / "images").is_dir():
+            for f in sorted((session.dir / "images").iterdir()):
+                if f.is_file():
+                    z.write(f, f"images/{f.name}")
+        if include_audio:
+            for st in session.steps:
+                if getattr(st, "audio", "") and (session.dir / st.audio).exists() and not st.skip:
+                    z.write(session.dir / st.audio, st.audio.replace("\\", "/"))
+    return Path(dest)
+
+
+ORIGINALS = ("raw", "audio/narration.wav", "audio/narration.raw", "audio/narration.raw.fmt",
+             "audio/narration_unsplit.wav", "audio/narration_problem.txt")
+
+
+def delete_originals(session):
+    """Delete the original (un-annotated) screenshots and the full narration recording.  The exported pictures,
+    documents and voice notes stay, so the recording can still be re-exported - but areas can no longer be hidden and
+    marks can no longer be changed.  Returns the number of files removed."""
+    n = 0
+    raw = session.dir / "raw"
+    if raw.is_dir():
+        for f in raw.iterdir():
+            try:
+                f.unlink()
+                n += 1
+            except OSError:
+                pass
+    for rel in ORIGINALS[1:]:
+        try:
+            (session.dir / rel).unlink()
+            n += 1
+        except OSError:
+            pass
+    session.settings["originals_removed"] = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    session.save()
+    return n
 
 
 def build_blocks(session, tpl):

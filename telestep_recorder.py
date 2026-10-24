@@ -398,7 +398,7 @@ class Recorder:
         Returns False (and says why through the events queue) when the microphone can't be opened."""
         if on and not self.narr:
             import telestep_audio
-            n = telestep_audio.Narrator()
+            n = telestep_audio.Narrator(raw=self.session.dir / "audio" / "narration.raw")
             ok, msg = n.start()
             if not ok:
                 self.mic_on = False

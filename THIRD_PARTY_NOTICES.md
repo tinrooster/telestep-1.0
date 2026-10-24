@@ -18,7 +18,9 @@ see each project for the full text.
 | PyInstaller (build only) | builds the .exe | GPLv2+ with a special exception that permits distributing the built program under any license |
 
 ## LGPL note (pynput, pystray)
-Telestep imports these libraries unmodified and does not alter them. The single-file `Telestep.exe` bundles them, so if
-you redistribute the exe you should also make the Telestep source available (it is: https://gitlab.com/ac-pcr1/telestep)
-and keep these notices with it. Users can replace the libraries by running Telestep from source with their own copies
-(`python telestep.py`). This is a summary, not legal advice.
+pynput and pystray are licensed under the GNU LGPL v3. Telestep imports them unmodified and does not alter them. They are
+separate libraries, not part of Telestep's own (MIT) code. The single-file `Telestep.exe` bundles them, so if you
+redistribute the exe you must (1) keep this notice and the LGPL text with it, (2) make the library sources available
+(they are on PyPI; Telestep's own source is at https://gitlab.com/ac-pcr1/telestep), and (3) let users swap in their own
+version of these libraries - they can, by running Telestep from source (`python telestep.py`) with the library of their
+choice installed. This is a summary, not legal advice; have your own counsel confirm if you redistribute commercially.

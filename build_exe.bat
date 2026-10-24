@@ -12,5 +12,7 @@ pyinstaller --onefile --windowed --name Telestep --icon assets\telestep.ico ^
   --hidden-import telestep_help --hidden-import telestep_support ^
   --hidden-import telestep_review --hidden-import telestep_report --hidden-import telestep_widgets --hidden-import telestep_settings --hidden-import telestep_privacy --hidden-import telestep_marks --hidden-import telestep_update --hidden-import telestep_audio --hidden-import telestep_player ^
   telestep.py
+rem SHA-256 of the finished exe, for allow-listing and for checking a copy later.
+certutil -hashfile dist\Telestep.exe SHA256 | findstr /v "hash CertUtil" > dist\Telestep.exe.sha256
 echo.
 echo Done: dist\Telestep.exe   (GUI only; use python telestep_recorder.py for the command line)

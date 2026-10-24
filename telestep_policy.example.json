@@ -1,0 +1,15 @@
+{
+  "_comment": "Copy to C:\\ProgramData\\Telestep\\telestep_policy.json (all users) or next to Telestep.exe. 'defaults' are used until a person saves their own choice; 'locked' is forced on every start and every recording; remove this _comment line is optional. Only keys that exist in Telestep's settings are read; anything else is ignored.",
+  "defaults": {
+    "wording": "friendly",
+    "mask_style": "pixelate_fine",
+    "formats": { "docx": true, "md": false, "pdf": true },
+    "template": { "header": "ACME IT Documentation", "footer": "Internal - do not distribute" }
+  },
+  "locked": {
+    "ocr_enabled": true,
+    "ocr": { "ip": true, "email": true, "card": true },
+    "update_check": false
+  },
+  "disable_audio": true
+}

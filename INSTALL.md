@@ -100,6 +100,50 @@ click **Stop**, and get one ZIP to send you.
 `build_support_onefile.bat` builds a single `Telestep-Support.exe` instead. It works the same way but is flagged by
 antivirus and SmartScreen more often.
 
+## For IT: what Telestep does, and doesn't
+
+- **Network:** none while recording or exporting. The only internet use is the optional update check (off by default;
+  one HTTPS request to the project's GitLab releases page, nothing is downloaded or sent about you). Everything else
+  stays on the PC. If you filter outbound traffic, you do not need to allow anything for Telestep to work.
+- **What it listens to:** a low-level mouse and keyboard hook (the `pynput` library) while a recording is running, to
+  notice clicks, drags, scrolls and shortcuts. Typed text is **not** stored unless the "Type" option says so
+  (default: only a count of keystrokes). Security software may report the hook; that is expected. The hook is removed
+  when the recording stops.
+- **Microphone:** used only when the person switches narration on (it always starts off). A red, pulsing microphone
+  icon stays on the toolbar while it is open. It uses the Windows `waveIn` API; nothing else is installed. To forbid it,
+  set `"disable_audio": true` in the policy file below.
+- **Screenshots:** taken at each click, kept in the recording folder (`Documents\Telestep` by default, or beside the
+  program in portable mode). Areas and OCR-detected secrets can be hidden before they are saved. Telestep hides its own
+  window from the screenshots.
+- **Admin/elevated windows:** Windows stops a normal program from seeing clicks in them; see "Recording administrator
+  windows" above.
+- **Files written:** the recording folders, `settings.json` (in `%APPDATA%\Telestep`, or beside the program in portable
+  mode) and `debug.log`. Nothing is written to the registry; the single-instance guard is a named mutex.
+- **Allow-listing:** if application control blocks it, allow `Telestep.exe` by path or publisher (once you sign it) -
+  see "Verify a build" below for the SHA-256 to pin.
+- **Silent rollout:** copy `Telestep.exe` (and optionally `portable.txt`, `telestep_policy.json`) to a folder or
+  share; there is no installer and nothing to uninstall except deleting that folder and the recordings.
+
+### Managing settings centrally (policy file)
+
+Put `telestep_policy.json` in `C:\ProgramData\Telestep\` (applies to every user of the PC) or next to `Telestep.exe`
+(that one wins). See `telestep_policy.example.json`:
+
+| Part | Effect |
+|---|---|
+| `defaults` | Starting values for a person who has not saved their own yet (header/footer, formats, hide style ...). |
+| `locked` | Forced on every start and every recording, and snap back if a person changes them in Settings (for example "OCR redaction on", "update check off"). |
+| `disable_audio` | `true` keeps voice narration off: the setting is locked off, so the microphone never opens. |
+
+A missing or broken file is ignored. Setting names are the keys in `settings.json`.
+
+### Verify a build
+
+`build_exe.bat` writes `dist\Telestep.exe.sha256` next to the exe. Compare it with
+`certutil -hashfile Telestep.exe SHA256` on the target PC. Unsigned builds may trigger SmartScreen ("unknown
+publisher") - sign the exe with your code-signing certificate (`signtool sign /fd SHA256 /tr <timestamp-url> /td SHA256
+/a dist\Telestep.exe`) before wide deployment.
+
 ## Optional extras
 
 **OCR (hide IP addresses, keys and e-mail addresses automatically; name unlabelled clicks).**

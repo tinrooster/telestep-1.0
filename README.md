@@ -28,6 +28,8 @@ Nothing leaves your computer: no cloud service, no account, no upload.
 - **Portable mode** (`portable.txt` next to the program) and an optional, off-by-default update check.
 - **Support mode:** a one-button recorder for end users that produces a single ZIP (one-sheet HTML report, steps, system and network details) to send to IT.
 - **Toolbar:** icon mini-bar with on-screen overlays showing what is captured and masked, saved presets, hotkeys, optional tray icon, and a built-in Help / About window (F1).
+- **Presets and policy:** built-in presets (Quick docs / Support ticket / Narrated tutorial) with a first-run chooser; IT can push defaults and locked settings with a policy file (`telestep_policy.example.json`).
+- **Sharing:** a share-safe ZIP (no originals, no full narration) and a one-click delete of the originals; crash-safe narration.
 - **Safe by design:** the session is autosaved after every step, so a crash loses nothing.
 
 ## Requirements
@@ -185,6 +187,8 @@ on each PC that needs OCR redaction.
 | `telestep_update.py` | the optional update check (the only network use) |
 | `telestep_support.py` | Support mode (one-click recorder that produces a ZIP for IT) |
 | `telestep_help.py` | Help, About and License window |
+| `tests\` | the test-suite (`python tests/run_tests.py`; GitLab CI runs it on each push) |
+| `telestep_policy.example.json` | example administrator policy file |
 | `HELP.md` | end-user guide shown in the Help window (bundled in the exe) |
 | `assets\` | logo and `telestep.ico` |
 
