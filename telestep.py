@@ -239,6 +239,10 @@ class App:
         ttk.Style().configure("Icon.TButton", padding=2)
         isz = round(20 * self.scale)
         self.icons = {k: (w.make_icon(k, c, isz), w.make_icon(k, "#b8b8b8", isz)) for k, c in ICON_COLORS.items()}
+        msz = round(26 * self.scale)  # the microphone indicator is bigger than the other icons, and ripples while open
+        self.mic_frames = [w.make_icon("mic_pulse", "#e53935", msz, i / 8.0) for i in range(8)]
+        self.mic_off_big = w.make_icon("mic_off", "#607d8b", msz)
+        self._pulse_i = -1
 
         self.tray = Tray(self)
         main = self.main = ttk.Frame(root, padding=(6, 4))
@@ -751,6 +755,9 @@ class App:
         self.cbtn_pause = self._icon_btn(self.c_ctl, "pause", "Pause / resume", self.toggle_pause)
         self.cbtn_stop = self._icon_btn(self.c_ctl, "stop", "Stop and save", self.stop)
         # the microphone indicator stays visible on the collapsed badge while recording: click it to switch
+        self.c_rec = ttk.Label(self.cframe, cursor="hand2")  # stays visible while recording: red dot / amber pause
+        self.c_rec.bind("<Button-1>", lambda e: self.toggle_pause())
+        w.Tip(self.c_rec, "Recording. Click to pause / resume.")
         self.c_mic = ttk.Label(self.cframe, cursor="hand2")
         self.c_mic.bind("<Button-1>", lambda e: self.toggle_mic())
         w.Tip(self.c_mic, "Microphone: red = recording your voice. Click to switch on / off.")
@@ -788,13 +795,22 @@ class App:
         return self._badges[state]
 
     def _compact_refresh(self):
-        self.c_icon.configure(image=self._badge(self.state if self.state in ("rec", "paused") else "idle"))
+        self.c_icon.configure(image=self._badge("idle"))  # the app logo always stays
         idle = self.state == "idle"
+        if not idle:
+            img = self._badge(self.state)
+            self.c_rec.configure(image=img)
+            self.c_rec.image = img
+        if idle:  # the Record button only exists while it can be used
+            if not self.cbtn_rec.winfo_ismapped():
+                self.cbtn_rec.pack(side="left", padx=1, before=self.cbtn_pause)
+        else:
+            self.cbtn_rec.pack_forget()
         self._enable(self.cbtn_rec, idle)
         self._enable(self.cbtn_pause, not idle)
         self._enable(self.cbtn_stop, not idle)
         self._mic_key = None
-        self._show_mic(bool(self.rec and self.rec.mic_on))
+        self._show_mic(bool(self.rec and self.rec.mic_on and not self.rec.paused))
         self._set_icon(self.cbtn_pause, "resume" if self.state == "paused" else "pause")
 
     def enter_compact(self):
@@ -868,7 +884,7 @@ class App:
             return
         self._expanded = on
         if on:
-            self.c_ctl.grid(row=0, column=2, padx=(2, 0))
+            self.c_ctl.grid(row=0, column=3, padx=(2, 0))
         else:
             self.c_ctl.grid_remove()
         self.root.update_idletasks()
@@ -1374,22 +1390,41 @@ class App:
                 return  # the reason arrives as a toast
             self.toast("Microphone ON - talk while you work; each step keeps what you say before its click."
                        if self.rec.mic_on else "Microphone off.", 4)
-            self._show_mic(self.rec.mic_on)
+            self._show_mic(self.rec.mic_on and not self.rec.paused)
 
     def _show_mic(self, on):
+        """`on` = the microphone is really listening (switched on and not paused)."""
         recording = self.state != "idle"
-        key = (on, recording)
+        key = (bool(on), recording)
         if key == getattr(self, "_mic_key", None):
             return
         self._mic_key = key
-        self._set_icon(self.btn_mic, "mic_on" if on else "mic_off")
-        on_img, off_img = self.icons["mic_on" if on else "mic_off"]
-        self.c_mic.configure(image=on_img)
-        self.c_mic.image = on_img
-        if recording:
-            self.c_mic.grid(row=0, column=1, padx=(2, 2), pady=2)
+        self._pulse_i = -1
+        if on:
+            self._pulse_mic()
         else:
+            self._set_icon(self.btn_mic, "mic_off")
+            self.c_mic.configure(image=self.mic_off_big)
+            self.c_mic.image = self.mic_off_big
+        if recording:
+            self.c_rec.grid(row=0, column=1, padx=(2, 0), pady=2)
+            self.c_mic.grid(row=0, column=2, padx=(2, 2), pady=2)
+        else:
+            self.c_rec.grid_remove()
             self.c_mic.grid_remove()
+
+    def _pulse_mic(self):
+        """While the microphone is open its icon ripples, so it can never be mistaken for 'off'."""
+        if not (getattr(self, "_mic_key", None) and self._mic_key[0]):
+            return
+        i = int(time.monotonic() * 8) % len(self.mic_frames)
+        if i == self._pulse_i:
+            return
+        self._pulse_i = i
+        fr = self.mic_frames[i]
+        self.btn_mic.configure(image=(str(fr), "disabled", str(self.icons["mic_off"][1])))
+        self.c_mic.configure(image=fr)
+        self.c_mic.image = fr
 
     def shot(self, from_menu=False):
         if self.rec:
@@ -1666,7 +1701,7 @@ class App:
             elif ev[0] == "warn":
                 self.toast(ev[1], 12)
             elif ev[0] == "mic":
-                self._show_mic(ev[1])
+                self._show_mic(bool(ev[1] and self.rec and not self.rec.paused))
             elif ev[0] == "backlog":
                 msg = {"warn": f"Telestep is catching up ({ev[2]} clicks waiting). Pause a moment between clicks.",
                        "hold": f"Too many clicks waiting ({ev[2]}): new clicks are NOT being recorded until Telestep "
@@ -1743,7 +1778,8 @@ class App:
                     self.var_status.set(f"⏳ Catching up +{q}")
                 else:
                     self.var_status.set(f"● REC  {n}{tail} steps" if st == "rec" else f"‖ Paused  {n}{tail}")
-                self._show_mic(rec.mic_on)
+                self._show_mic(rec.mic_on and not rec.paused)
+                self._pulse_mic()
         elif self.state == "idle":
             self.var_status.set(self.idle_msg)
             self._show_mic(False)

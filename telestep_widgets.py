@@ -58,7 +58,7 @@ def list_screens():
 
 
 # ---------- icons (drawn at 6x and downsampled, so no font or image files needed) ----------
-def make_icon(kind, color, size=20):
+def make_icon(kind, color, size=20, phase=0.0):
     S = size * 6
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -80,6 +80,16 @@ def make_icon(kind, color, size=20):
         d.polygon([(f(.62), f(.1)), (f(.62), f(.3)), (f(.82), f(.3))], fill=(255, 255, 255, 150))
         for y in (.5, .64, .78):
             d.rectangle([f(.3), f(y - .03), f(.7), f(y + .03)], fill=(255, 255, 255, 235))
+    elif kind == "mic_pulse":  # open microphone: solid red disc, white mic, and a halo that ripples outwards
+        ring = int(255 * (1.0 - phase) * 0.85)
+        rr = .40 + .10 * phase
+        d.ellipse([f(.5 - rr), f(.5 - rr), f(.5 + rr), f(.5 + rr)], outline=(229, 57, 53, ring), width=max(2, int(f(.06))))
+        d.ellipse([f(.1), f(.1), f(.9), f(.9)], fill=(229, 57, 53, 255))
+        ink, w_ = (255, 255, 255, 255), int(f(.07))
+        d.rounded_rectangle([f(.39), f(.22), f(.61), f(.54)], radius=f(.11), fill=ink)
+        d.arc([f(.29), f(.36), f(.71), f(.66)], 0, 180, fill=ink, width=w_)
+        d.line([(f(.5), f(.66)), (f(.5), f(.76))], fill=ink, width=w_)
+        d.line([(f(.4), f(.76)), (f(.6), f(.76))], fill=ink, width=w_)
     elif kind in ("mic_on", "mic_off"):
         on = kind == "mic_on"
         if on:  # bold: a solid red disc with a white microphone, impossible to miss

@@ -132,8 +132,9 @@ your speech, not at the click**, so you can talk straight through your clicks:
 - One long run of speech across several clicks is cut at the quietest moment near each click.
 - Long silences (waiting for a page to load) are cut out of the clips.
 Pausing the recording also mutes the microphone, so nothing said while paused is kept, and steps recorded while the mic is
-off simply get no clip. A 🔊 in the step list marks steps with a voice note. The mic always starts **off**; a red mic icon stays visible on the
-collapsed toolbar badge while recording (click it to switch), so you always know whether you are being recorded.
+off simply get no clip. A 🔊 in the step list marks steps with a voice note. The mic always starts **off**; a bigger mic icon stays visible on the
+collapsed toolbar next to the red record dot while recording (click it to switch). While the microphone is open it
+ripples, so you always know whether you are being recorded.
 
 **Settings > Audio** lets you pick the microphone, **Test** it (live level bar, then play back what it heard) and open the
 Windows sound / microphone-privacy settings. There is also an option to start every recording with the mic on.
