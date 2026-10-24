@@ -66,6 +66,9 @@ class CaptureOpts:
         self.masks = norm_masks(self.masks)
 
 
+ASSIGN = ("next", "prev")  # which click speech between two clicks goes with
+
+
 @dataclass
 class RecordOpts:
     key_mode: str = "count"  # none (mouse only, no keyboard hook) | count | text
@@ -82,7 +85,8 @@ class RecordOpts:
     wording: str = "friendly"
     ocr_labels: bool = True  # label clicks on unnamed controls with nearby text (needs Tesseract; silently skipped if absent)
     hotkeys: dict = field(default_factory=lambda: dict(DEFAULT_HOTKEYS))
-    narrate: bool = False  # record your voice while you work; cut into one clip per step when you stop
+    narrate: bool = False  # start with the microphone on (the toolbar mic button switches it either way)
+    audio_assign: str = "next"  # speech between two clicks goes with the "next" or the "prev"ious click
 
 
 class _Holder:
@@ -873,14 +877,18 @@ class Recorder:
 
     def _finish_audio(self):
         """End the narration and cut it into one clip per numbered step (see telestep_audio).  If anything goes
-        wrong the raw recording is kept as audio/narration_unsplit.wav and audio/narration_problem.txt says why."""
+        wrong audio/narration_problem.txt says why.  The raw recording stays as audio/narration.wav."""
         n, self.narr = self.narr, None
         if not n:
             return
         import telestep_audio
         adir = self.session.dir / "audio"
-        master = adir / "_narration.wav"
-        marks = [(s.id, s.apos) for s in self.session.steps if s.numbered and s.apos >= 0]
+        master = adir / "narration.wav"  # kept, so the cutting can be redone later (Review > More)
+        marks, last = [], 0.0
+        for s_ in self.session.steps:
+            if s_.numbered and s_.apos >= 0:
+                last = max(last, s_.apos)  # clicks that finished out of order must not run backwards
+                marks.append((s_.id, last))
         done, problem = {}, ""
         try:
             if not n.stop(master):
@@ -888,8 +896,8 @@ class Recorder:
             elif not marks:
                 problem = "no step was recorded while the microphone was on"
             else:
-                done = telestep_audio.cut_clips(master, marks, adir)
-                by_id = {s.id: s for s in self.session.steps}
+                done = telestep_audio.smart_clips(master, marks, adir, self.o.audio_assign)
+                by_id = {s_.id: s_ for s_ in self.session.steps}
                 for sid, fn in done.items():
                     by_id[sid].audio = f"audio/{fn}"
                 if not done:
@@ -903,14 +911,8 @@ class Recorder:
                 info = telestep_audio.describe(master) if master.exists() else "no recording file"
                 (adir / "narration_problem.txt").write_text(
                     f"{problem}\nmarks: {len(marks)}\nrecording: {info}\n", encoding="utf-8")
-                if master.exists():
-                    master.replace(adir / "narration_unsplit.wav")
             except OSError:
                 pass
-        try:
-            master.unlink()
-        except OSError:
-            pass
 
     def run(self):
         self.start()
@@ -962,6 +964,8 @@ def main(argv=None):
     ap.add_argument("--ocr-redact", default="", help="comma list of ip,mac,key,email")
     ap.add_argument("--keys", choices=["none", "count", "text"], default="count")
     ap.add_argument("--log-keys", action="store_true", help="same as --keys text")
+    ap.add_argument("--audio-assign", choices=ASSIGN, default="next",
+                    help="speech between two clicks goes with the next (default) or the previous click")
     ap.add_argument("--narrate", action="store_true", help="record your voice and attach a clip to each step")
     ap.add_argument("--mouse-only", action="store_true", help="same as --keys none")
     ap.add_argument("--after", choices=["off", "replace", "pair"], default="off")
@@ -1008,7 +1012,7 @@ def main(argv=None):
         key_mode="text" if a.log_keys else "none" if a.mouse_only else a.keys, max_width=a.max_width,
         after_mode=a.after, after_delay_ms=a.after_ms, dbl=not a.no_dbl, drag=not a.no_drag, scroll=a.scroll,
         shortcuts=not a.no_shortcuts, watch_dialogs=not a.no_dialogs, ocr_kinds=kinds, ocr_style=a.mask_style,
-        wording=a.wording, narrate=a.narrate)
+        wording=a.wording, narrate=a.narrate, audio_assign=a.audio_assign)
     title = a.title or "Recorded steps"
     out = Path(a.out) if a.out else Path("recordings") / session_dir_name(a.title)
     rec = Recorder(out, cap, opts, title)

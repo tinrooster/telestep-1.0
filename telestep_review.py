@@ -11,6 +11,7 @@ Open it from the toolbar (list icon), automatically after Stop, or:  python tele
 import dataclasses
 import os
 import sys
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -243,8 +244,16 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         self.btn_vplay.pack(side="left", padx=(6, 0))
         self.btn_vdel = ttk.Button(vo, text="Remove", command=self.voice_remove, width=9)
         self.btn_vdel.pack(side="left", padx=(6, 0))
+        self.pb_voice = ttk.Progressbar(vo, maximum=100, length=90)
+        self.pb_voice.pack(side="left", padx=(10, 4))
         self.var_vinfo = tk.StringVar()
-        ttk.Label(vo, textvariable=self.var_vinfo, foreground="#667").pack(side="left", padx=10)
+        ttk.Label(vo, textvariable=self.var_vinfo, foreground="#667", width=13).pack(side="left")
+        self.btn_vall = ttk.Button(vo, text="\u25b6\u25b6 Play all", command=self.voice_walk, width=11)
+        self.btn_vall.pack(side="right")
+        self._vplay = None  # {"st","t0","dur","done"} while a clip plays
+        self._vjob = None
+        self._walk = None  # {"steps","i"} while Play all runs
+        self._advancing = False  # Play all is changing the selection itself
         self._vrec = None  # (Narrator, step) while recording a voice note
 
         mk = ttk.LabelFrame(right, text="Hide private information in the screenshot", padding=6)
@@ -431,6 +440,8 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
             self.tree.see(kids[idx])
 
     def on_select(self):
+        if not self._advancing and not (self._walk and self.tree.selection() == (self._walk.get("sel"),)):
+            self._voice_stop_play()  # you picked another step: playback stops (Play all's own moves don't count)
         self._voice_finish()
         self._commit_editor()
         self._msel = None
@@ -588,7 +599,45 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         m.add_separator()
         m.add_command(label="Move to top", command=lambda: self.move(-10_000))
         m.add_command(label="Move to bottom", command=lambda: self.move(10_000))
+        m.add_separator()
+        m.add_command(label="Re-cut voice notes...", command=self.recut_narration)
         return m
+
+    def recut_narration(self):
+        """Split the saved narration recording into per-step clips again (e.g. with the other timing rule)."""
+        master = self.s.dir / "audio" / "narration.wav"
+        marks, last = [], 0.0
+        for st in self.s.steps:
+            if st.numbered and st.apos >= 0:
+                last = max(last, st.apos)
+                marks.append((st.id, last))
+        if not master.exists() or not marks:
+            messagebox.showinfo("Telestep", "This recording has no saved narration to cut again.", parent=self)
+            return
+        ans = messagebox.askyesnocancel(
+            "Telestep", "Cut the voice notes again from the original narration?\n\n"
+            "Speech that overlaps a click always stays with that click. For speech BETWEEN clicks:\n\n"
+            "Yes  -  it goes with the NEXT click (you say what you are about to do)\n"
+            "No  -  it goes with the PREVIOUS click (you explain what just happened)\n\n"
+            "Voice notes you recorded by hand for these steps are replaced.", parent=self)
+        if ans is None:
+            return
+        self._voice_stop_play()
+        for sid, _t in marks:
+            st = self.s.find(sid)
+            if st and st.audio:
+                try:
+                    (self.s.dir / st.audio).unlink()
+                except OSError:
+                    pass
+                st.audio = ""
+        done = audio.smart_clips(master, marks, self.s.dir / "audio", "next" if ans else "prev")
+        for sid, fn in done.items():
+            self.s.find(sid).audio = f"audio/{fn}"
+        self.s.save()
+        self._edits += 1
+        self.refresh(select=self._cur.id if self._cur else None)
+        messagebox.showinfo("Telestep", f"{len(done)} voice note(s) cut.", parent=self)
 
     def merge_selected(self):
         sel = [st for st in self.selected_steps() if st.numbered]
@@ -884,23 +933,35 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         return count
 
     # ------------------------------------------------------------------ voice note
+    def _has_clip(self, st):
+        return bool(st and st.audio and (self.s.dir / st.audio).exists())
+
     def _sync_voice(self, st):
         ok = bool(st and st.numbered)
-        has = ok and bool(st.audio) and (self.s.dir / st.audio).exists()
+        has = ok and self._has_clip(st)
         rec = self._vrec is not None
-        can_rec = ok and audio.available()
+        playing = self._vplay is not None
+        can_rec = ok and audio.available() and not playing
         self.btn_vrec.configure(state="normal" if can_rec else "disabled",
                                 text="\u25a0 Stop" if rec else ("\u25cf Re-record" if has else "\u25cf Record"))
-        self.btn_vplay.configure(state="normal" if has and sys.platform == "win32" else "disabled")
-        self.btn_vdel.configure(state="normal" if has else "disabled")
+        self.btn_vplay.configure(state="normal" if (has and sys.platform == "win32") or playing else "disabled",
+                                 text="\u25a0 Stop" if playing else "\u25b6 Play")
+        self.btn_vdel.configure(state="normal" if has and not playing else "disabled")
+        anyclip = any(self._has_clip(x) for x in self.s.steps)
+        self.btn_vall.configure(state="normal" if anyclip and sys.platform == "win32" and not rec else "disabled",
+                                text="\u25a0 Stop all" if self._walk else "\u25b6\u25b6 Play all")
         if rec:
-            self.var_vinfo.set("recording... speak now")
+            self.var_vinfo.set("recording...")
+        elif playing:
+            pass  # the ticker writes the time
         elif has:
             self.var_vinfo.set(f"{audio.duration(self.s.dir / st.audio):.0f} s")
+            self.pb_voice["value"] = 0
         elif ok and not audio.available():
-            self.var_vinfo.set("(recording needs Windows)")
+            self.var_vinfo.set("(needs Windows)")
         else:
             self.var_vinfo.set("none" if ok else "")
+            self.pb_voice["value"] = 0
 
     def voice_record(self):
         st = self._cur
@@ -941,9 +1002,85 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
                 pass
 
     def voice_play(self):
+        if self._vplay:
+            self._voice_stop_play()
+            return
         st = self._cur
-        if st and st.audio and (self.s.dir / st.audio).exists():
-            audio.play(self.s.dir / st.audio)
+        if self._has_clip(st):
+            self._play_clip(st)
+
+    def _play_clip(self, st, done=None):
+        path = self.s.dir / st.audio
+        self._vplay = {"st": st, "t0": time.monotonic(), "dur": max(0.2, audio.duration(path)), "done": done}
+        audio.play(path)
+        self._sync_voice(self._cur)
+        self._vtick()
+
+    def _vtick(self):
+        p = self._vplay
+        if not p:
+            return
+        el = time.monotonic() - p["t0"]
+        if el >= p["dur"] + 0.15:
+            done, self._vplay, self._vjob = p["done"], None, None
+            self.pb_voice["value"] = 0
+            self._sync_voice(self._cur)
+            if done:
+                done()
+            return
+        self.pb_voice["value"] = 100.0 * min(el, p["dur"]) / p["dur"]
+        self.var_vinfo.set(f"{el:.0f} / {p['dur']:.0f} s")
+        self._vjob = self.after(80, self._vtick)
+
+    def _voice_stop_play(self):
+        """Stop a playing clip (and Play all)."""
+        if self._vjob:
+            self.after_cancel(self._vjob)
+            self._vjob = None
+        was = self._vplay is not None or self._walk is not None
+        self._vplay = None
+        self._walk = None
+        audio.stop_playing()
+        if was:
+            self.pb_voice["value"] = 0
+            self._sync_voice(self._cur)
+
+    def voice_walk(self):
+        """Play all: step through the recording, showing each step while its voice note plays."""
+        if self._walk:
+            self._voice_stop_play()
+            return
+        steps = [x for x in self.s.steps if x.numbered and not x.skip]
+        if not steps:
+            return
+        cur = self._cur
+        i = steps.index(cur) if cur in steps else 0
+        self._walk = {"steps": steps, "i": i}
+        self._walk_next()
+
+    def _walk_next(self):
+        w_ = self._walk
+        if not w_:
+            return
+        if w_["i"] >= len(w_["steps"]):
+            self._voice_stop_play()
+            return
+        st = w_["steps"][w_["i"]]
+        w_["i"] += 1
+        w_["sel"] = st.id
+        self._advancing = True
+        try:
+            self.tree.selection_set(st.id)
+            self.tree.see(st.id)
+            self.update_idletasks()
+            self.on_select()
+        finally:
+            self._advancing = False
+        if self._has_clip(st):
+            self._play_clip(st, done=self._walk_next)
+        else:  # no voice note: let the picture sit for a moment
+            self._vjob = self.after(1500, self._walk_next)
+            self._sync_voice(st)
 
     def voice_remove(self):
         st = self._cur
@@ -1201,7 +1338,7 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
 
     def close(self):
         self._voice_finish()
-        audio.stop_playing()
+        self._voice_stop_play()
         if self._unexported():
             ans = messagebox.askyesnocancel(
                 "Telestep",

@@ -202,6 +202,7 @@ class App:
         self.var_narrate = tk.BooleanVar(value=d.get("narrate", False))
         self.var_audio_dev = tk.StringVar(value=d.get("audio_device", "") or ta.DEFAULT_NAME)
         ta.preferred = d.get("audio_device", "") or ""
+        self.var_assign = tk.StringVar(value=d.get("audio_assign", "next"))
         self.var_keys = tk.StringVar(value=_inv(KEYS, d["key_mode"]))
         self.var_mstyle = tk.StringVar(value=core.MASK_STYLES[core.canon_style(d["mask_style"])])
         self.var_ocr = {k: tk.BooleanVar(value=d["ocr"].get(k, False)) for k in core.OCR_PATTERNS}
@@ -488,15 +489,21 @@ class App:
                         ).grid(row=5, column=0, columnspan=2, sticky="w")
         ttk.Label(t, text="(Normally it starts OFF; you switch it on with the toolbar button.)", foreground="gray"
                   ).grid(row=6, column=0, columnspan=2, sticky="w")
+        asg = ttk.LabelFrame(t, text="Speech between two clicks goes with", padding=4)
+        ttk.Radiobutton(asg, text="the next click (you say what you are about to do)", value="next",
+                        variable=self.var_assign).pack(anchor="w")
+        ttk.Radiobutton(asg, text="the previous click (you explain what just happened)", value="prev",
+                        variable=self.var_assign).pack(anchor="w")
+        asg.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         links = ttk.Frame(t)
         ttk.Button(links, text="Windows sound settings", command=lambda: self._open_ms("ms-settings:sound")
                    ).pack(side="left")
         ttk.Button(links, text="Microphone privacy", command=lambda: self._open_ms("ms-settings:privacy-microphone")
                    ).pack(side="left", padx=(6, 0))
-        links.grid(row=7, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        links.grid(row=8, column=0, columnspan=2, sticky="w", pady=(8, 0))
         ttk.Label(t, text="Voice is saved as-is: the hide tools and the privacy check do not cover it.",
                   foreground="gray", wraplength=int(330 * self.scale), justify="left"
-                  ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(6, 0))
+                  ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self._atest = None  # (Narrator, started_at, peak) while testing
         self._atest_file = None
         self._audio_refresh()
@@ -861,7 +868,7 @@ class App:
             return
         self._expanded = on
         if on:
-            self.c_ctl.grid(row=0, column=1, padx=(2, 0))
+            self.c_ctl.grid(row=0, column=2, padx=(2, 0))
         else:
             self.c_ctl.grid_remove()
         self.root.update_idletasks()
@@ -947,7 +954,7 @@ class App:
             "after_mode": AFTER[self.var_after.get()], "after_delay_ms": self._int(self.var_delay, 700),
             "max_width": self._int(self.var_width, 1600), "dbl": self.var_dbl.get(), "drag": self.var_drag.get(),
             "scroll": self.var_scroll.get(), "shortcuts": self.var_shortcuts.get(),
-            "watch_dialogs": self.var_dialogs.get(), "narrate": self.var_narrate.get(),
+            "watch_dialogs": self.var_dialogs.get(), "narrate": self.var_narrate.get(), "audio_assign": self.var_assign.get(),
             "audio_device": "" if self.var_audio_dev.get() == ta.DEFAULT_NAME else self.var_audio_dev.get(), "masks": [m.to_dict() for m in self.masks],
             "mask_style": self.style_key(), "key_mode": KEYS[self.var_keys.get()],
             "ocr": {k: v.get() for k, v in self.var_ocr.items()}, "ocr_labels": self.var_ocr_labels.get(), "ocr_enabled": self.var_ocr_on.get(), "formats": {k: v.get() for k, v in self.var_fmt.items()},
@@ -992,7 +999,7 @@ class App:
         self.var_width.set(d["max_width"])
         for var, key in ((self.var_dbl, "dbl"), (self.var_drag, "drag"), (self.var_scroll, "scroll"),
                          (self.var_shortcuts, "shortcuts"), (self.var_dialogs, "watch_dialogs"),
-                         (self.var_narrate, "narrate"),
+                         (self.var_narrate, "narrate"), (self.var_assign, "audio_assign"),
                          (self.var_review, "review_after_stop"), (self.var_flash, "flash"), (self.var_sound, "sound"),
                          (self.var_overlay, "overlays"), (self.var_hide, "hide_from_capture")):
             var.set(d[key])
@@ -1315,7 +1322,7 @@ class App:
             key_mode=KEYS[self.var_keys.get()], max_width=self._int(self.var_width, 1600),
             after_mode=AFTER[self.var_after.get()], after_delay_ms=self._int(self.var_delay, 700),
             dbl=self.var_dbl.get(), drag=self.var_drag.get(), scroll=self.var_scroll.get(),
-            shortcuts=self.var_shortcuts.get(), watch_dialogs=self.var_dialogs.get(), narrate=self.var_narrate.get(),
+            shortcuts=self.var_shortcuts.get(), watch_dialogs=self.var_dialogs.get(), narrate=self.var_narrate.get(), audio_assign=self.var_assign.get(),
             ocr_kinds=[k for k, v in self.var_ocr.items() if v.get()] if self.var_ocr_on.get() else [], ocr_style=self.style_key(),
             wording=self.wording(), ocr_labels=self.var_ocr_labels.get() and self.var_ocr_on.get(), hotkeys=hk)
 
@@ -1380,7 +1387,7 @@ class App:
         self.c_mic.configure(image=on_img)
         self.c_mic.image = on_img
         if recording:
-            self.c_mic.grid(row=0, column=2, padx=(2, 2), pady=2)
+            self.c_mic.grid(row=0, column=1, padx=(2, 2), pady=2)
         else:
             self.c_mic.grid_remove()
 

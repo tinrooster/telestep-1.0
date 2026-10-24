@@ -123,19 +123,26 @@ In the review editor use the **Comment** box under the caption.
 
 ## Voice narration
 While recording, click the **microphone button** on the toolbar to start narrating (it turns red; click again to mute). Talk
-while you work. When you stop, the recording is cut into one short clip per step: **what you say before a click goes with
-that click**, and anything after the last click goes with the last step. Pausing the recording also mutes the microphone, so
-nothing said while paused is kept, and steps recorded while the mic is off simply get no clip. Quiet stretches get no clip.
-A 🔊 in the step list marks steps with a voice note. The mic always starts **off**; a red mic icon stays visible on the
+while you work. When you stop, Telestep finds your sentences and gives each step its own clip. It cuts at the **pauses in
+your speech, not at the click**, so you can talk straight through your clicks:
+- Speech that overlaps a click (or ends right before it) goes with that click and is never chopped in half.
+- Speech in a gap between clicks goes with the **next** click (you say what you are about to do) or the **previous** one
+  (you explain what just happened): choose in *Settings > Audio*, or change your mind later with *More > Re-cut voice notes*
+  in the review window.
+- One long run of speech across several clicks is cut at the quietest moment near each click.
+- Long silences (waiting for a page to load) are cut out of the clips.
+Pausing the recording also mutes the microphone, so nothing said while paused is kept, and steps recorded while the mic is
+off simply get no clip. A 🔊 in the step list marks steps with a voice note. The mic always starts **off**; a red mic icon stays visible on the
 collapsed toolbar badge while recording (click it to switch), so you always know whether you are being recorded.
 
 **Settings > Audio** lets you pick the microphone, **Test** it (live level bar, then play back what it heard) and open the
 Windows sound / microphone-privacy settings. There is also an option to start every recording with the mic on.
 
-If no clips come out, Telestep says why when you stop, and keeps the raw recording as `audio/narration_unsplit.wav` plus
-`audio/narration_problem.txt` in the recording folder.
+The full narration is kept as `audio/narration.wav` in the recording folder (used for re-cutting). If no clips come out,
+Telestep says why when you stop and writes `audio/narration_problem.txt`.
 
-In the review editor, **Voice note** under the caption lets you play, re-record or remove a step's clip (you can also add
+In the review editor, **Voice note** under the caption lets you play (with a progress bar and Stop), re-record or remove a
+step's clip, and **Play all** steps through the whole recording showing each step while its clip plays (you can also add
 notes to a recording made without narration). Voice notes are saved as `audio/` files in the recording folder; merging steps
 joins their clips, duplicating copies them.
 

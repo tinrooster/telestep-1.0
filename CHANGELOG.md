@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Voice clips are cut at pauses in your speech instead of at the click (speech over a click stays whole; speech between clicks goes with the next or previous click: Settings > Audio; More > Re-cut voice notes in Review). Long silences are trimmed. Review: Play/Stop with progress bar and Play all walkthrough. The mic indicator on the collapsed toolbar no longer moves when the toolbar expands.
 - Voice narration: new Settings > Audio tab (choose microphone, live level test with play back); mic always starts off; red mic indicator stays on the collapsed badge while recording; recorder rewritten on Windows waveIn on a single helper thread (fixes "device is not open"). Toolbar microphone button switches narration on and off while recording (mute follows Pause); setting means "mic on from the start"; explains and keeps the raw recording if no clips come out. Microphone recording while you work, cut into one clip per step; play, re-record or remove clips in the review editor; HTML report gets players, ZIP bundle and Markdown include the audio. Uses only Windows built-ins (no new packages).
 - Single instance: starting Telestep (or Support mode) a second time shows "already running" instead of opening another toolbar; `--allow-multiple` or `TELESTEP_MULTI=1` overrides.
 - Review step list: more row height and alternating row shading; text marks can be resized from their side handles.

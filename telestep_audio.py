@@ -290,6 +290,142 @@ def cut_clips(wav_path, marks, out_dir):
     return out
 
 
+# --------------------------------------------------------------------------------------- smart cutting
+FRAME_S = 0.03  # energy is measured in 30 ms slices
+BRIDGE_S = 0.40  # pauses shorter than this stay inside one utterance
+MIN_UTTERANCE_S = 0.30  # shorter bursts are clicks and coughs, not speech
+CLICK_TOL_S = 0.50  # a click this close to an utterance still belongs to it
+PAD_S = 0.15  # breathing room kept around each utterance
+JOIN_GAP_S = 0.25  # silence put between two utterances of the same step (long waits are cut out)
+ASSIGN_MODES = ("next", "prev")
+
+
+def _frame_energy(samples, ch, rate):
+    """Mean absolute level of each 30 ms slice (list of floats)."""
+    n = max(1, int(rate * FRAME_S)) * ch
+    return [sum(map(abs, samples[i:i + n])) / max(1, len(samples[i:i + n])) for i in range(0, len(samples), n)]
+
+
+def utterances(energy):
+    """[(start_frame, end_frame)] runs of speech: loud frames, short pauses bridged, tiny bursts dropped."""
+    if not energy:
+        return []
+    srt = sorted(energy)
+    noise = srt[int(len(srt) * 0.10)]
+    loud = srt[int(len(srt) * 0.95)]  # when you barely pause, the "quiet" 10% is speech: cap by the loud end
+    thr = max(60.0, min(noise * 3.0, loud * 0.2))
+    bridge = max(1, int(BRIDGE_S / FRAME_S))
+    runs, start, last = [], None, None
+    for i, e in enumerate(energy):
+        if e >= thr:
+            if start is None:
+                start = i
+            elif i - last > bridge:
+                runs.append((start, last + 1))
+                start = i
+            last = i
+    if start is not None:
+        runs.append((start, last + 1))
+    return [(a, b) for a, b in runs
+            if (b - a) * FRAME_S >= MIN_UTTERANCE_S and max(energy[a:b]) >= 120]
+
+
+def _quietest(energy, lo, hi):
+    lo, hi = max(0, lo), min(len(energy), max(lo + 1, hi))
+    return min(range(lo, hi), key=lambda i: energy[i]) if lo < len(energy) else lo
+
+
+def assign_utterances(utts, energy, clicks, mode="next"):
+    """Decide which click each piece of speech belongs to.
+    utts: [(a, b)] in frames; clicks: [seconds] ascending.  Returns [(click_index, a, b)] pieces in frames.
+    Rules: speech that overlaps (or nearly touches) a click goes with that click and is never cut at the click;
+    speech in a gap goes with the NEXT click ('next': you announce what you are about to do) or the PREVIOUS one
+    ('prev': you explain what just happened).  One long utterance spanning several clicks is cut at the quietest
+    moment near each later click."""
+    out, nclk = [], len(clicks)
+    if not nclk:
+        return out
+    tol = CLICK_TOL_S / FRAME_S
+    cf = [c / FRAME_S for c in clicks]
+    for a, b in utts:
+        inside = [k for k in range(nclk) if a - tol <= cf[k] <= b + tol]
+        if not inside:
+            if mode == "prev":
+                before = [k for k in range(nclk) if cf[k] < a]
+                k = before[-1] if before else 0
+            else:
+                after = [k for k in range(nclk) if cf[k] > b]
+                k = after[0] if after else nclk - 1
+            out.append((k, a, b))
+        elif len(inside) == 1:
+            out.append((inside[0], a, b))
+        else:
+            # window around each later click where the person most likely paused for breath
+            back, fwd = (1.2, 0.4) if mode == "next" else (0.4, 1.2)
+            cuts, prev = [a], a
+            for k in inside[1:]:
+                p = _quietest(energy, int(cf[k] - back / FRAME_S), int(cf[k] + fwd / FRAME_S))
+                p = min(max(p, prev + 1), b - 1)
+                cuts.append(p)
+                prev = p
+            cuts.append(b)
+            for j, k in enumerate(inside):
+                if cuts[j + 1] > cuts[j]:
+                    out.append((k, cuts[j], cuts[j + 1]))
+    return out
+
+
+def smart_clips(wav_path, marks, out_dir, mode="next"):
+    """Like cut_clips, but cuts at pauses in your speech instead of at the click times.  `marks` = [(name, click_seconds)]
+    ascending.  Returns {name: filename} (steps with no speech get none); sets LAST_ERROR on failure."""
+    global LAST_ERROR
+    LAST_ERROR = ""
+    out, out_dir = {}, Path(out_dir)
+    try:
+        with wave.open(str(wav_path), "rb") as w:
+            rate, width, ch = w.getframerate(), w.getsampwidth(), w.getnchannels()
+            frames = w.readframes(w.getnframes())
+        if width != 2:
+            LAST_ERROR = f"unsupported sample size ({width * 8}-bit)"
+            return cut_clips(wav_path, marks, out_dir)
+        samples = array.array("h")
+        samples.frombytes(frames[: len(frames) // 2 * 2])
+        if sys.byteorder == "big":
+            samples.byteswap()
+        energy = _frame_energy(samples, ch, rate)
+        pieces = assign_utterances(utterances(energy), energy, [t for _n, t in marks], mode)
+        per = {}
+        fs = max(1, int(rate * FRAME_S))
+        pad = int(PAD_S * rate)
+        gap = array.array("h", [0] * (int(JOIN_GAP_S * rate) * ch))
+        for k, a, b in pieces:
+            lo = max(0, a * fs - pad) * ch
+            hi = min(len(samples) // ch, b * fs + pad) * ch
+            per.setdefault(k, []).append(samples[lo:hi])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for k, parts in per.items():
+            clip = array.array("h")
+            for i, part in enumerate(parts):
+                if i:
+                    clip.extend(gap)
+                clip.extend(part)
+            if len(clip) / ch / rate < MIN_SECONDS:
+                continue
+            if sys.byteorder == "big":
+                clip.byteswap()
+            name = marks[k][0]
+            with wave.open(str(out_dir / f"{name}.wav"), "wb") as o:
+                o.setnchannels(ch)
+                o.setsampwidth(2)
+                o.setframerate(rate)
+                o.writeframes(clip.tobytes())
+            out[name] = f"{name}.wav"
+    except (OSError, wave.Error, EOFError) as e:
+        LAST_ERROR = f"{type(e).__name__}: {e}"
+    return out
+
+
+
 def join_clips(paths, dest):
     """Concatenate WAV files (same format) into `dest`.  Returns True on success."""
     try:
