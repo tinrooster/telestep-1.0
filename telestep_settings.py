@@ -14,11 +14,11 @@ DEFAULTS = {
     "dbl": True, "drag": True, "scroll": False, "shortcuts": True, "watch_dialogs": True,
     # privacy
     "masks": [], "mask_style": "solid", "key_mode": "count",
-    "ocr": {"ip": False, "mac": False, "key": False, "email": False}, "ocr_style": "solid", "ocr_labels": True,
+    "ocr": {"ip": False, "mac": False, "key": False, "email": False}, "ocr_style": "solid", "ocr_labels": True, "ocr_enabled": True,
     # report
     "formats": {"md": True, "docx": True, "html": False, "pdf": False, "txt": False},
     "review_after_stop": True, "wording": "friendly",
-    "template": {"header": "", "footer": "", "logo": "", "author": "", "environment": True},
+    "template": {"header": "", "footer": "", "logo": "", "author": "", "environment": True, "focus": "off"},
     # app
     "hotkeys": dict(DEFAULT_HOTKEYS), "flash": True, "sound": False, "tray": False, "hide_in_tray": False, "close_to_tray": True,
     "hide_from_capture": True, "overlays": True, "toolbar_pos": None, "presets": {},

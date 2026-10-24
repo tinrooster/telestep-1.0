@@ -728,12 +728,13 @@ def _tesseract_path(pytesseract):
             return
 
 
-def ocr_words(img):
-    """[(text, l, t, r, b)] for every recognised word."""
+def ocr_words(img, min_conf=20, psm=None):
+    """[(text, l, t, r, b)] for every recognised word with at least `min_conf` confidence."""
     try:
         import pytesseract
         _tesseract_path(pytesseract)
-        data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+        data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT,
+                                         config=f"--psm {psm}" if psm else "")
     except Exception as e:  # missing module or missing tesseract.exe
         raise OcrUnavailable(str(e)) from e
     words = []
@@ -743,10 +744,89 @@ def ocr_words(img):
             conf = float(data["conf"][i])
         except (TypeError, ValueError):
             conf = 0
-        if txt and conf >= 20:
+        if txt and conf >= min_conf:
             l, t, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
             words.append((txt, l, t, l + w, t + h))
     return words
+
+
+def _same_picture(a, b, max_changed=40, delta=16):
+    """True if two grayscale pictures of the same size differ in at most `max_changed` pixels
+    (a blinking caret, not a new line of text)."""
+    if a.size != b.size:
+        return False
+    from PIL import ImageChops
+    diff = ImageChops.difference(a, b).point(lambda v: 255 if v > delta else 0)
+    return diff.histogram()[255] <= max_changed
+
+
+def ocr_words_tiled(img, tile=1700, overlap=60, workers=None, cache=None):
+    """ocr_words for a very wide picture (several monitors): side-by-side strips read in parallel.
+    Tesseract is single-threaded per picture, so this is close to N times faster on N strips.
+
+    `cache` (a dict you keep between calls) lets a strip that looks the same as it did last time reuse
+    its words: with three monitors, usually only one of them changes between two clicks.  A strip is only
+    reused when it is practically identical, so new text on screen is always read."""
+    if img.width <= tile * 1.3:
+        boxes = [(0, 0, img.width, img.height)]
+    else:
+        n = -(-img.width // tile)
+        step = -(-img.width // n)
+        boxes = [(max(0, i * step - overlap), 0, min(img.width, (i + 1) * step + overlap), img.height)
+                 for i in range(n)]
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+    gray = {}
+    parts = {}
+    todo = []
+    for b in boxes:
+        if cache is not None:
+            gray[b] = img.crop(b).convert("L")
+            hit = cache.get(b)
+            if hit and _same_picture(hit[0], gray[b]):
+                parts[b] = hit[1]
+                continue
+        todo.append(b)
+    if todo:
+        workers = workers or max(1, min(len(todo), os.cpu_count() or 1, 4))
+        old = os.environ.get("OMP_THREAD_LIMIT")
+        if len(todo) > 1:
+            os.environ["OMP_THREAD_LIMIT"] = "1"  # one thread per strip, or the strips fight over the cores
+        try:
+            with ThreadPoolExecutor(workers) as ex:
+                for b, words in zip(todo, ex.map(lambda bb: ocr_words(img.crop(bb)), todo)):
+                    parts[b] = words
+                    if cache is not None:
+                        cache[b] = (gray[b], words)
+        finally:
+            if len(todo) > 1:
+                if old is None:
+                    os.environ.pop("OMP_THREAD_LIMIT", None)
+                else:
+                    os.environ["OMP_THREAD_LIMIT"] = old
+    out, seen = [], set()
+    for b in boxes:
+        for txt, l, t, r, bt in parts[b]:
+            key = (txt, round((l + b[0]) / 8), round(t / 8))  # the overlap reads some words twice
+            if key not in seen:
+                seen.add(key)
+                out.append((txt, l + b[0], t, r + b[0], bt))
+    return out
+
+
+def plausible_label(text):
+    """False for OCR fragments like 'ey ne mart' : needs a real-looking word (3+ letters, with a vowel)
+    and mostly letters/digits."""
+    if not text:
+        return False
+    alnum = sum(ch.isalnum() for ch in text)
+    if alnum < 0.75 * len(text.replace(" ", "")):
+        return False
+    toks = [t.strip(".,;:()[]\"'") for t in text.split()]
+    short_ok = {"as", "of", "in", "on", "to", "or", "at", "by", "up", "go", "is", "it", "no", "ok", "id", "my", "we",
+                "us", "if", "an", "be", "do", "so", "ip"}
+    good = [w for w in toks if w.lower() in short_ok or len(w) >= 3 and w.isalpha() and any(v in w.lower() for v in "aeiouy") or w.isdigit() and len(w) >= 2]
+    return bool(toks) and len(good) / len(toks) >= 0.6
 
 
 def pick_label(words, px, py, max_dist=90, max_words=4):
@@ -780,18 +860,24 @@ def pick_label(words, px, py, max_dist=90, max_words=4):
     return clean_text(" ".join(c[1] for c in line[lo:hi + 1]))[:40]
 
 
-def ocr_label_near(img, x, y, half_w=220, half_h=60):
+def ocr_label_near(img, x, y, half_w=220, half_h=60, max_dist=90):
     """Readable text close to (x, y) in `img`, e.g. the caption of a control that exposes no name.
     Raises OcrUnavailable when Tesseract is missing.  Only reads a small crop, so it is quick."""
     l, t = max(0, int(x - half_w)), max(0, int(y - half_h))
     r, b = min(img.width, int(x + half_w)), min(img.height, int(y + half_h))
     if r - l < 8 or b - t < 8:
         return ""
+    from PIL import ImageOps, ImageStat
     crop = img.crop((l, t, r, b)).convert("L")
-    k = 2
+    if ImageStat.Stat(crop).mean[0] < 120:
+        crop = ImageOps.invert(crop)  # Tesseract reads dark-mode light-on-dark text badly
+    crop = ImageOps.autocontrast(crop)
+    k = 3
     crop = crop.resize((crop.width * k, crop.height * k), Image.LANCZOS)
-    words = [(w, wl / k + l, wt / k + t, wr / k + l, wb / k + t) for w, wl, wt, wr, wb in ocr_words(crop)]
-    return pick_label(words, x, y)
+    words = [(w, wl / k + l, wt / k + t, wr / k + l, wb / k + t)
+             for w, wl, wt, wr, wb in ocr_words(crop, min_conf=60, psm=11)]
+    label = pick_label(words, x, y, max_dist=max_dist)
+    return label if plausible_label(label) else ""
 
 
 def ocr_match_rects(words, kinds):
@@ -805,9 +891,9 @@ def ocr_match_rects(words, kinds):
     return rects
 
 
-def ocr_redact(img, kinds, style="solid", words=None):
+def ocr_redact(img, kinds, style="solid", words=None, cache=None):
     """Mask sensitive-looking words in `img` (in place). Returns the number of words masked."""
-    words = words if words is not None else ocr_words(img)
+    words = words if words is not None else ocr_words_tiled(img, cache=cache)
     rects = ocr_match_rects(words, kinds)
     for l, t, r, b in rects:
         apply_mask(img, (l - 3, t - 2, r + 3, b + 2), style, "")
@@ -827,6 +913,57 @@ def _arrow(d, p0, p1, s, color=RED, width=None):
     L = 20 * s
     for da in (math.radians(155), -math.radians(155)):
         d.line([p1, (p1[0] + L * math.cos(ang + da), p1[1] + L * math.sin(ang + da))], fill=color, width=width)
+
+
+FOCUS_MODES = {"off": "Off - show the whole screen",
+               "window": "Blur all but the clicked window",
+               "control": "Blur all but the clicked control"}
+
+
+def focus_rect(marker, size, mode):
+    """Area (l, t, r, b) to keep sharp for a step, in image pixels, or None when there is nothing sensible to keep."""
+    w, h = size
+    marker = marker or {}
+    s = max(0.8, w / 1400)
+    pt = marker.get("pt")
+    if mode == "window":
+        r = marker.get("win")
+        if not r or len(r) != 4:
+            return None
+        keep = (r[0] - 2 * s, r[1] - 2 * s, r[2] + 2 * s, r[3] + 2 * s)
+    elif mode == "control":
+        r = marker.get("rect")
+        if r and len(r) == 4 and (r[2] - r[0]) * (r[3] - r[1]) < 0.35 * w * h:
+            pad = 28 * s  # a little context around the control
+            keep = (r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad)
+        elif pt:  # unnamed control, or one as big as the window: a patch around the click
+            half = 150 * s
+            keep = (pt[0] - half, pt[1] - half * 0.7, pt[0] + half, pt[1] + half * 0.7)
+        else:
+            return None
+    else:
+        return None
+    l, t, rr, b = max(0, int(keep[0])), max(0, int(keep[1])), min(w, int(keep[2])), min(h, int(keep[3]))
+    return (l, t, rr, b) if rr - l >= 8 and b - t >= 8 else None
+
+
+def focus_blur(img, marker, mode):
+    """Blur (and slightly dim) everything except the clicked window / control.  Returns img unchanged when it
+    does not apply (mode off, no window recorded for old sessions, or the kept area is nearly the whole picture)."""
+    if mode not in ("window", "control"):
+        return img
+    keep = focus_rect(marker, img.size, mode)
+    if not keep:
+        return img
+    l, t, r, b = keep
+    if (r - l) * (b - t) >= 0.85 * img.width * img.height:
+        return img
+    from PIL import ImageEnhance
+    out = img.filter(ImageFilter.GaussianBlur(max(6, img.width / 90)))
+    out = ImageEnhance.Brightness(out).enhance(0.82)
+    out.paste(img.crop(keep), (l, t))
+    ImageDraw.Draw(out).rectangle([l, t, r - 1, b - 1], outline=(255, 255, 255), width=max(1, int(img.width / 900)))
+    return out
 
 
 def annotate(img, marker, n=None):

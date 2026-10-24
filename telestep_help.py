@@ -136,10 +136,29 @@ def render_markdown(text_widget, md):
     t.configure(state="disabled")
 
 
+def open_log_folder(log_path=None):
+    """Show telestep_debug.log in File Explorer (just the folder if no log has been written yet)."""
+    import os
+    import subprocess
+    from pathlib import Path
+    if log_path is None:
+        import telestep_settings as cfg
+        log_path = cfg.settings_path().with_name("telestep_debug.log")
+    log_path = Path(log_path)
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        if log_path.exists():
+            subprocess.Popen(["explorer", f"/select,{log_path}"])
+        else:
+            os.startfile(str(log_path.parent))  # Windows only
+    except Exception:
+        pass
+
+
 class HelpWindow(tk.Toplevel):
     """Help (README) and About in one window.  `start` = 'help' or 'about'."""
 
-    def __init__(self, master, start="help"):
+    def __init__(self, master, start="help", log_path=None):
         super().__init__(master)
         self.title(HELP_TITLE)
         apply_icon(self)
@@ -179,6 +198,10 @@ class HelpWindow(tk.Toplevel):
         repo.bind("<Button-1>", lambda e: webbrowser.open(REPO_URL))
         lic = ttk.Label(ab, text=f"{LICENSE_NAME} - {COPYRIGHT}", foreground="gray")
         lic.pack(anchor="center", pady=(6, 0))
+        log = ttk.Label(ab, text="Open the log folder (for troubleshooting)", font=("Segoe UI", 10, "underline"),
+                        foreground="#1e5aa8", cursor="hand2")
+        log.pack(anchor="center", pady=(12, 0))
+        log.bind("<Button-1>", lambda e: open_log_folder(log_path))
         ttk.Label(ab, text="Everything is recorded and stored locally on this computer.",
                   foreground="gray").pack(anchor="center", pady=(24, 0))
         nb.add(ab, text="About")

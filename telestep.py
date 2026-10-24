@@ -126,6 +126,8 @@ class App:
         self.settings_path = settings_path
         self.data = cfg.load(settings_path)
         self.rec = None
+        self._saving = None
+        self._stop_result = None
         self.state = "idle"
         self.out_dir = None
         self.last_session = None
@@ -148,7 +150,16 @@ class App:
         try:  # slow-spot diagnostics: stays empty (and is deleted on exit) unless the window freezes
             import faulthandler  # noqa: F401,F811
             self._dbg_path = Path(settings_path or cfg.settings_path()).with_name("telestep_debug.log")
+            try:
+                if self._dbg_path.stat().st_size > 2_000_000:  # keep it small: start over once it grows past 2 MB
+                    self._dbg_path.replace(self._dbg_path.with_suffix(".old.log"))
+            except OSError:
+                pass
             self._dbg = open(self._dbg_path, "a", buffering=1, encoding="utf-8")
+            import platform
+            self._dbg.write(f"\n===== Telestep {core.VERSION} started {dt.datetime.now():%Y-%m-%d %H:%M:%S} | "
+                            f"Windows {platform.version()} | Python {platform.python_version()} | "
+                            f"{os.cpu_count()} CPU threads =====\n")
         except Exception:
             self._dbg = None
         self._poll_job = None
@@ -191,12 +202,14 @@ class App:
         self.var_mstyle = tk.StringVar(value=core.MASK_STYLES.get(d["mask_style"], core.MASK_STYLES["solid"]))
         self.var_ocr = {k: tk.BooleanVar(value=d["ocr"].get(k, False)) for k in core.OCR_PATTERNS}
         self.var_ocr_labels = tk.BooleanVar(value=d["ocr_labels"])
+        self.var_ocr_on = tk.BooleanVar(value=d.get("ocr_enabled", True))  # master switch: keeps the ticks below
         self.var_fmt = {k: tk.BooleanVar(value=d["formats"].get(k, False)) for k in rep.FORMATS}
         self.var_wording = tk.StringVar(value="Friendly" if d["wording"] == "friendly" else "Technical")
         t = d["template"]
         self.var_header, self.var_footer = tk.StringVar(value=t["header"]), tk.StringVar(value=t["footer"])
         self.var_author, self.var_logo = tk.StringVar(value=t["author"]), tk.StringVar(value=t["logo"])
         self.var_env = tk.BooleanVar(value=t["environment"])
+        self.var_focus = tk.StringVar(value=core.FOCUS_MODES.get(t.get("focus", "off"), core.FOCUS_MODES["off"]))
         self.var_flash, self.var_sound = tk.BooleanVar(value=d["flash"]), tk.BooleanVar(value=d["sound"])
         self.var_tray, self.var_hidetray = tk.BooleanVar(value=d["tray"]), tk.BooleanVar(value=d["hide_in_tray"])
         self.var_closetray = tk.BooleanVar(value=d["close_to_tray"])
@@ -225,7 +238,7 @@ class App:
         self.btn_note = self._icon_btn(bar, "note", "Add a note, warning or tip", self.add_note)
         self.btn_shot = self._icon_btn(bar, "camera", "Take a screenshot now (no click needed)", self.shot)
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=5, pady=2)
-        ttk.Label(bar, textvariable=self.var_status, width=16, font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 4))
+        ttk.Label(bar, textvariable=self.var_status, width=18, font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 4))
         self.btn_gear = ttk.Checkbutton(bar, style="Toolbutton", variable=self.var_cfg, command=self.toggle_config,
                                         takefocus=False)
         self._set_icon(self.btn_gear, "gear")
@@ -237,6 +250,12 @@ class App:
         self.btn_help = self._icon_btn(bar, "help", "Help and About (F1)", self.open_help, side="right")
         self.lbl_toast = ttk.Label(main, textvariable=self.var_toast, foreground="#b45309",
                                    wraplength=int(360 * self.scale), justify="left")
+
+        self.var_summary = tk.StringVar(value="")
+        self.lbl_summary = ttk.Label(main, textvariable=self.var_summary, foreground="#4a5560", cursor="hand2",
+                                     wraplength=int(340 * self.scale), justify="left")
+        self.lbl_summary.bind("<Button-1>", lambda e: (self.var_cfg.set(True), self.toggle_config()))
+        w.Tip(self.lbl_summary, "What the next recording will use. Click to change it in Settings.")
 
         self.cfg = ttk.Frame(main, padding=(0, 8, 0, 0))
         ttk.Style(self.root).layout("Plain.TNotebook.Tab", [])  # our own, clearer tab strip is drawn instead
@@ -257,6 +276,9 @@ class App:
         self._make_tabbar()
         self.nb.bind("<<NotebookTabChanged>>", lambda e: self._tab_changed())
 
+        for v in [self.var_title, self.var_review, self.var_taskbar, self.var_ocr_on, *self.var_fmt.values(),
+                  *self.var_ocr.values()]:
+            v.trace_add("write", lambda *a: self.update_summary())
         self.overlays = w.OverlayManager(self)
         self.refresh_screens()
         self.refresh_presets()
@@ -364,19 +386,27 @@ class App:
         ttk.Label(box, text="Style applies to the selected mask (and to new ones). 'Add window' hides a window\n"
                             "wherever it moves. Faded is for de-emphasis only - it is still readable.",
                   foreground="gray", justify="left").grid(row=3, column=0, columnspan=4, sticky="w", pady=(2, 0))
-        ocr = ttk.LabelFrame(t, text="Redact text automatically (OCR)", padding=6)
+        self.chk_ocr_on = ttk.Checkbutton(t, text="Use OCR (redact text, name unlabelled clicks)",
+                                          variable=self.var_ocr_on, command=self._ocr_toggled)
+        ocr = ttk.LabelFrame(t, labelwidget=self.chk_ocr_on, padding=6)
         ocr.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         self.ocr_checks = [ttk.Checkbutton(ocr, text=core.OCR_LABELS[k], variable=self.var_ocr[k],
                                            command=self.update_scope_label) for k in core.OCR_PATTERNS]
         for i, c in enumerate(self.ocr_checks):
             c.grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 12))
-        ttk.Checkbutton(ocr, text="Label clicks on unnamed controls with nearby text (OCR)",
-                        variable=self.var_ocr_labels).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.chk_ocr_labels = ttk.Checkbutton(ocr, text="Label clicks on unnamed controls with nearby text (OCR)",
+                                              variable=self.var_ocr_labels)
+        self.chk_ocr_labels.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.var_ocr_note = tk.StringVar(value="")
         ttk.Label(ocr, textvariable=self.var_ocr_note, foreground="gray", wraplength=int(330 * self.scale),
                   justify="left").grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Label(ocr, text="OCR is the slowest part of recording: it adds a few seconds per click, more with several "
+                            "monitors or a slow computer. Steps are finished in the background, and the toolbar "
+                            "counter shows how many are waiting.",
+                  foreground="gray", wraplength=int(330 * self.scale), justify="left"
+                  ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.lock_privacy = [self.cmb_keys, self.lst_masks, self.btn_madd, self.btn_mwin, self.btn_mdel, self.btn_mclr,
-                             self.cmb_mstyle] + self.ocr_checks
+                             self.cmb_mstyle, self.chk_ocr_on] + self.ocr_checks + [self.chk_ocr_labels]
 
     def _tab_report(self):
         t = self.tab_report
@@ -390,6 +420,9 @@ class App:
         self._grid(t, 2, "Header", ttk.Entry(t, textvariable=self.var_header))
         self._grid(t, 3, "Footer", ttk.Entry(t, textvariable=self.var_footer))
         self._grid(t, 4, "Author", ttk.Entry(t, textvariable=self.var_author))
+        self.cmb_focus = ttk.Combobox(t, textvariable=self.var_focus, state="readonly",
+                                      values=list(core.FOCUS_MODES.values()))
+        w.Tip(self.cmb_focus, "Blur the rest of the screen in the report pictures (the saved screenshots stay untouched)")
         lg = ttk.Frame(t)
         lg.columnconfigure(0, weight=1)
         ttk.Entry(lg, textvariable=self.var_logo).grid(row=0, column=0, sticky="ew")
@@ -397,8 +430,9 @@ class App:
         self._grid(t, 5, "Logo", lg)
         self._grid(t, 6, "", ttk.Checkbutton(t, text="Add environment appendix (OS, displays, ...)",
                                              variable=self.var_env))
+        self._grid(t, 7, "Focus", self.cmb_focus)
         ttk.Label(t, text="Friendly: Click the \"Save\" button    Technical: Left click on \"Save\" (Button)",
-                  foreground="gray").grid(row=7, column=0, columnspan=2, sticky="w", pady=(4, 0))
+                  foreground="gray").grid(row=8, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
     def _tab_options(self):
         t = self.tab_options
@@ -549,11 +583,11 @@ class App:
             "scroll": self.var_scroll.get(), "shortcuts": self.var_shortcuts.get(),
             "watch_dialogs": self.var_dialogs.get(), "masks": [m.to_dict() for m in self.masks],
             "mask_style": self.style_key(), "key_mode": KEYS[self.var_keys.get()],
-            "ocr": {k: v.get() for k, v in self.var_ocr.items()}, "ocr_labels": self.var_ocr_labels.get(), "formats": {k: v.get() for k, v in self.var_fmt.items()},
+            "ocr": {k: v.get() for k, v in self.var_ocr.items()}, "ocr_labels": self.var_ocr_labels.get(), "ocr_enabled": self.var_ocr_on.get(), "formats": {k: v.get() for k, v in self.var_fmt.items()},
             "review_after_stop": self.var_review.get(), "wording": self.wording(),
             "template": {"header": self.var_header.get().strip(), "footer": self.var_footer.get().strip(),
                          "logo": self.var_logo.get().strip(), "author": self.var_author.get().strip(),
-                         "environment": self.var_env.get()},
+                         "environment": self.var_env.get(), "focus": self.focus_key()},
             "hotkeys": {k: v.get().strip() for k, v in self.var_hk.items()}, "flash": self.var_flash.get(),
             "sound": self.var_sound.get(), "tray": self.var_tray.get(), "hide_in_tray": self.var_hidetray.get(),
             "close_to_tray": self.var_closetray.get(),
@@ -597,6 +631,9 @@ class App:
         for k, v in self.var_ocr.items():
             v.set(d["ocr"].get(k, False))
         self.var_ocr_labels.set(d.get("ocr_labels", True))
+        self.var_ocr_on.set(d.get("ocr_enabled", True))
+        if hasattr(self, "chk_ocr_labels"):
+            self._ocr_sync()
         for k, v in self.var_fmt.items():
             v.set(d["formats"].get(k, False))
         self.var_wording.set("Friendly" if d["wording"] == "friendly" else "Technical")
@@ -606,6 +643,7 @@ class App:
         self.var_author.set(t["author"])
         self.var_logo.set(t["logo"])
         self.var_env.set(t["environment"])
+        self.var_focus.set(core.FOCUS_MODES.get(t.get("focus", "off"), core.FOCUS_MODES["off"]))
         for k, v in self.var_hk.items():
             v.set(d["hotkeys"].get(k, cfg.DEFAULT_HOTKEYS[k]))
         self._enable(self.btn_area, self.state == "idle" and self.current_mode()[0] == "region")
@@ -695,7 +733,19 @@ class App:
             else:
                 self._enable(wd, idle)
         self._enable(self.btn_area, idle and self.current_mode()[0] == "region")
+        self._ocr_sync()
         self.tray.set_state(state)
+        self.update_summary()
+
+    def _ocr_sync(self):
+        """The OCR ticks are only usable while idle and the master switch is on; the ticks themselves are kept."""
+        on = self.state == "idle" and self.var_ocr_on.get()
+        for wd in self.ocr_checks + [self.chk_ocr_labels]:
+            self._enable(wd, on)
+
+    def _ocr_toggled(self):
+        self._ocr_sync()
+        self.update_scope_label()
 
     def toggle_config(self):
         if self.var_cfg.get():
@@ -703,6 +753,7 @@ class App:
             self.refresh_screens()
         else:
             self.cfg.grid_remove()
+        self.update_summary()
         self.root.update_idletasks()
         self.update_overlays()
 
@@ -750,9 +801,34 @@ class App:
             parts.append("taskbar excluded")
         if self.masks:
             parts.append(f"{len(self.masks)} mask{'s' if len(self.masks) != 1 else ''}")
-        if any(v.get() for v in self.var_ocr.values()):
+        if self.var_ocr_on.get() and any(v.get() for v in self.var_ocr.values()):
             parts.append("OCR redaction")
         self.var_scope.set(" | ".join(parts))
+        self.update_summary()
+
+    def update_summary(self):
+        """One quiet line under the toolbar: what Record is about to start with (hidden while Settings is open)."""
+        if not hasattr(self, "lbl_summary"):
+            return
+        show = self.state == "idle" and not self.var_cfg.get() and not self._saving
+        if not show:
+            self.lbl_summary.grid_remove()
+            return
+        mode, _ = self.current_mode()
+        area = self.var_mode.get().split(" (")[0]
+        if mode == "region":
+            area = "Custom area" + ("" if self.region else " (none yet)")
+        bits = [self.var_title.get().strip() or "Untitled", area]
+        if self.var_taskbar.get():
+            bits[-1] += ", no taskbar"
+        priv = [f"{len(self.masks)} mask{'s' if len(self.masks) != 1 else ''}"] if self.masks else []
+        if self.var_ocr_on.get() and any(v.get() for v in self.var_ocr.values()):
+            priv.append("OCR redaction")
+        bits.append("Privacy: " + ", ".join(priv) if priv else "No redaction")
+        fmts = [k.upper() for k in self.formats()]
+        bits.append("Review, then export" if self.var_review.get() else ("Saves " + "/".join(fmts) if fmts else "Saves no files"))
+        self.var_summary.set("  ·  ".join(bits))
+        self.lbl_summary.grid(row=3, column=0, sticky="ew", pady=(4, 0))
 
     def on_mode_change(self, _event=None):
         self._enable(self.btn_area, self.current_mode()[0] == "region")
@@ -837,10 +913,12 @@ class App:
             after_mode=AFTER[self.var_after.get()], after_delay_ms=self._int(self.var_delay, 700),
             dbl=self.var_dbl.get(), drag=self.var_drag.get(), scroll=self.var_scroll.get(),
             shortcuts=self.var_shortcuts.get(), watch_dialogs=self.var_dialogs.get(),
-            ocr_kinds=[k for k, v in self.var_ocr.items() if v.get()], ocr_style=self.style_key(),
-            wording=self.wording(), ocr_labels=self.var_ocr_labels.get(), hotkeys=hk)
+            ocr_kinds=[k for k, v in self.var_ocr.items() if v.get()] if self.var_ocr_on.get() else [], ocr_style=self.style_key(),
+            wording=self.wording(), ocr_labels=self.var_ocr_labels.get() and self.var_ocr_on.get(), hotkeys=hk)
 
     def start(self):
+        if self._saving:
+            return
         mode, _ = self.current_mode()
         if mode == "region" and not self.region:
             self.ask("showerror", "Choose a custom area first (Settings > Capture > Select area).")
@@ -852,6 +930,14 @@ class App:
             self.rec.ignore_titles = {TITLE, w.NOTE_TITLE, w.PICK_TITLE, w.WINPICK_TITLE}
             self.toolbar_rect = w.window_screen_rect(self.root)
             self.rec.ignore_rects = [self.toolbar_rect] if self.toolbar_rect else []
+            self.rec.slow_log = self._dlog
+            o = self.record_opts()
+            self._rec_t0 = time.monotonic()
+            self._dlog(f"----- Recording \"{self.report_title}\" started {dt.datetime.now():%Y-%m-%d %H:%M:%S} -----\n"
+                       f"      folder: {self.out_dir}\n"
+                       f"      capture: {self.var_mode.get()} | {max(len(w.list_screens()) - 1, 1)} screen(s) | "
+                       f"redaction: {', '.join(o.ocr_kinds) or 'off'} | label OCR: {'on' if o.ocr_labels else 'off'} | "
+                       f"max width {o.max_width}px | focus: {self.focus_key()}")
             self.rec.start()
         except Exception as e:
             self.rec = None
@@ -893,12 +979,40 @@ class App:
         return [k for k, v in self.var_fmt.items() if v.get()]
 
     def stop(self):
-        if not self.rec:
+        if not self.rec or self._saving:
             return
+        rec, self.rec = self.rec, None
+        self._saving = rec
+        self._stop_result = None
         self.var_status.set("Saving...")
         self.root.update_idletasks()
-        rec, self.rec = self.rec, None
-        sess = rec.stop()
+
+        def work():  # the recorder finishes its queued steps here, so the window stays responsive
+            try:
+                self._stop_result = rec.stop()
+            except Exception as e:
+                self._stop_result = e
+        threading.Thread(target=work, daemon=True).start()
+        self._wait_save()
+
+    def _wait_save(self):
+        rec = self._saving
+        if self._stop_result is None:
+            n = rec.pending()
+            self.var_status.set(f"Saving... {n} step{'s' if n != 1 else ''} left" if n else "Saving...")
+            self.root.after(200, self._wait_save)
+            return
+        res, self._saving = self._stop_result, None
+        if isinstance(res, Exception):
+            self.set_state("idle")
+            self.root.deiconify()
+            self.ask("showerror", f"Saving failed:\n{res}\n\nThe screenshots so far are in the session folder.")
+            return
+        self._finish_stop(res)
+
+    def _finish_stop(self, sess):
+        self._dlog(f"----- Recording \"{getattr(sess, 'title', '')}\" saved: {sess.count()} steps, "
+                   f"{time.monotonic() - getattr(self, '_rec_t0', time.monotonic()):.0f}s from start to saved -----")
         self.last_session = sess
         self.set_state("idle")
         self.root.deiconify()
@@ -919,10 +1033,28 @@ class App:
                      + f"\n\nThe screenshots and session.json are safe in the session folder.\nDetails: {sess.dir / 'save_errors.log'}")
         self.idle_msg = f"Saved {sess.count()} steps" if not bad else "Saved with errors"
 
+    def _dlog(self, msg):
+        try:
+            if self._dbg:
+                self._dbg.write(f"[{dt.datetime.now():%H:%M:%S}] {msg}\n")
+                self._dbg.flush()
+        except Exception:
+            pass
+
     def template(self):
         return rep.Template(wording=self.wording(), header=self.var_header.get().strip(),
                             footer=self.var_footer.get().strip(), logo=self.var_logo.get().strip(),
-                            author=self.var_author.get().strip(), environment=self.var_env.get())
+                            author=self.var_author.get().strip(), environment=self.var_env.get(),
+                            focus=self.focus_key())
+
+    def focus_key(self):
+        return next((k for k, v in core.FOCUS_MODES.items() if v == self.var_focus.get()), "off")
+
+    def _seed_template(self, session):
+        """A recording nobody has exported yet has no report settings of its own: start from the toolbar's."""
+        if not session.settings.get("template"):
+            session.settings["template"] = self.template().to_dict()
+            session.settings.setdefault("wording", self.wording())
 
     def open_review(self, session=None):
         if not isinstance(session, Session):
@@ -936,6 +1068,7 @@ class App:
                 return
             session.settings.setdefault("wording", self.wording())
         import telestep_review
+        self._seed_template(session)
         if self.review is not None:
             try:
                 self.review.destroy()
@@ -985,7 +1118,7 @@ class App:
                 self.help_win.destroy()
             except tk.TclError:
                 pass
-        self.help_win = telestep_help.HelpWindow(self.root, start)
+        self.help_win = telestep_help.HelpWindow(self.root, start, getattr(self, "_dbg_path", None))
         return self.help_win
 
     def browse(self):
@@ -1055,6 +1188,13 @@ class App:
                 self.toast(f"Deleted last step: {ev[1]}", 3)
             elif ev[0] == "warn":
                 self.toast(ev[1], 12)
+            elif ev[0] == "backlog":
+                msg = {"warn": f"Telestep is catching up ({ev[2]} clicks waiting). Pause a moment between clicks.",
+                       "hold": f"Too many clicks waiting ({ev[2]}): new clicks are NOT being recorded until Telestep "
+                               "catches up. Wait for the counter to drop.",
+                       "resumed": "Caught up - recording again."}[ev[1]]
+                self._dlog(f"backlog {ev[1]} ({ev[2]} queued)")
+                self.toast(msg, 15 if ev[1] == "hold" else 8)
         while not self.requests.empty():
             req = self.requests.get_nowait()
             if req == "quit":
@@ -1106,7 +1246,12 @@ class App:
                 if st != self.state:
                     self.set_state(st)
                 n = rec.session.count()
-                self.var_status.set(f"● REC  {n} steps" if st == "rec" else f"‖ Paused  {n}")
+                q = rec.pending()  # clicks captured but still being processed (they join the count shortly)
+                tail = f" +{q}" if q else ""
+                if rec.holding:
+                    self.var_status.set(f"⏳ Catching up +{q}")
+                else:
+                    self.var_status.set(f"● REC  {n}{tail} steps" if st == "rec" else f"‖ Paused  {n}{tail}")
         elif self.state == "idle":
             self.var_status.set(self.idle_msg)
         if self.var_toast.get() and time.monotonic() > self.toast_until:

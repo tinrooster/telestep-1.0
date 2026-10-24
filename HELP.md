@@ -88,10 +88,34 @@ to the default. A key can't be used twice, and plain letters need Ctrl, Alt or S
 ## Review editor: left-out steps and close-ups
 - The **In report** column shows a tick for steps that will be in the report. Click the box (or use *Leave out* / *Put back*)
   to switch a step. Left-out steps are greyed, and the picture shows a red "LEFT OUT OF THE REPORT" tag.
-- **View** under the picture: *Whole screenshot*, or *Close-up of the click* at 50%, 100% or 200% of real size. The close-up
+- **View** under the picture: *Whole screenshot*, or *Close-up of the click* at 100%, 150% or 200% of real size. The close-up
   centres on the click, and hiding areas works the same way in either view.
 
-## Troubleshooting a slow or frozen window
+## Report styles (Documentation mode)
+Under **Report > Style** in the review window:
+- **Technical report** - everything: times, window and app details, dialog text and the environment appendix.
+- **Documentation** - steps and pictures only (numbered captions, no timestamps, machine names or dialog dumps; automatic
+  technical entries are left out). Meant to be edited into a user guide.
+- **Documentation - one sheet** - the same content with small pictures side by side, sized to fit one page when it can.
+Your own section headings and Note / Warning / Tip callouts are kept in every style. Header, Footer, Author and Logo appear in
+every format (Word and PDF page header/footer, HTML, Markdown, and the plain-text file).
+
+## Focus: blur everything except what was clicked
+Under the picture in the review window (and on the toolbar's Report tab), **Focus** can blur the rest of the screen:
+- **Blur all but the clicked window** - the window you clicked stays sharp, the rest of the desktop is blurred.
+- **Blur all but the clicked control** - only the control you clicked (plus a little context) stays sharp. If Telestep
+  couldn't tell which control it was, a patch around the click is kept.
+It only changes the pictures in the report; the saved screenshots are untouched, so you can switch it off again.
+Recordings made before this feature don't know the window's outline, so *window* leaves them as they are.
+In Support mode set `"focus": "window"` or `"control"` in `telestep_support.json`.
+
+## Exporting
+**Export** (the blue button, also Ctrl+Enter) writes the files into the recording folder shown beside it; it then offers to
+open that folder. If you close the window with changes that haven't been exported, Telestep asks first.
+
+## Troubleshooting
+
+**Toolbar says "Catching up"** - processing (mostly OCR redaction) is behind your clicks. At 25 waiting clicks Telestep warns you; at 60 it stops taking new clicks until it has caught up, so memory doesn't fill up. Pause between clicks, or turn off OCR redaction you don't need. a slow or frozen window
 If the toolbar ever freezes for more than a few seconds, Telestep writes where it was stuck to `telestep_debug.log` next to
 the settings file (it is deleted on a clean exit when nothing was logged). Send that file along with a description.
 

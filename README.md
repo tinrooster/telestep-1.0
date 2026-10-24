@@ -20,6 +20,7 @@ Nothing leaves your computer: no cloud service, no account, no upload.
   - Optional OCR redaction of IP addresses, MAC addresses, keys and e-mail addresses.
 - **Right-click menus** on the step list, the screenshot and the toolbar.
 - **Smarter captions:** controls that expose no name are labelled with nearby on-screen text (OCR, optional).
+- **Report styles:** Technical report, clean end-user Documentation, or a condensed one-sheet Documentation layout.
 - **Review editor:** delete, exclude, reorder, edit captions, add section headings and Note / Warning / Tip callouts, switch between friendly and technical wording, and mask anything you missed after the fact.
 - **Export:** Markdown, DOCX, HTML (single file), PDF and text, with header, footer, logo and an environment appendix.
 - **Support mode:** a one-button recorder for end users that produces a single ZIP (one-sheet HTML report, steps, system and network details) to send to IT.
@@ -129,6 +130,9 @@ When a clicked control exposes no name (custom or game-engine apps) or is just a
 next to the click with OCR and adds it to the step (`Click near "Settings"`). This needs Tesseract on the PC doing the
 recording, is skipped silently without it (`"ocr_labels": false` turns it off), runs after redaction and masks so it
 can't read hidden text, and is never used for password fields.
+
+To limit what IT sees of the rest of the screen, set `"focus": "window"` (blur everything but the clicked window) or
+`"control"` (everything but the clicked control) in `telestep_support.json`.
 
 The window asks for the user's name and a phone number or email (pre-filled from Windows when it knows them) and puts
 them at the top of the report. Set `"require_contact": true` to insist on both, or `"ask_contact": false` to skip them.

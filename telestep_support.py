@@ -53,6 +53,7 @@ DEFAULTS = {
     "collect_network": True,
     "include_session": False,
     "review": "ask",  # ask | always | never - let the user check the recording for private information before the ZIP
+    "focus": "off",  # off | window | control: blur everything but the clicked window / control in the screenshots
     "ocr_labels": True,  # label clicks on unnamed controls with nearby text (needs Tesseract on the PC; skipped if absent)
 }
 # (max image width, JPEG quality), tried in order until the zip fits max_mb
@@ -73,6 +74,8 @@ def load_config(path=None):
             cfg.update({k: v for k, v in data.items() if k in DEFAULTS})
     except (OSError, ValueError):
         pass
+    if cfg["focus"] not in ("off", "window", "control"):
+        cfg["focus"] = "off"
     if cfg["capture"] not in ("screen", "all", "window"):
         cfg["capture"] = "screen"
     if cfg["key_mode"] not in ("none", "count", "text"):
@@ -152,14 +155,14 @@ def _jpeg_b64(img, width, quality):
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def collect_images(session):
+def collect_images(session, focus="off"):
     """{step id: (annotated PIL image | None, 'after' PIL image | None)} - loaded once, reused for each quality level."""
     nums, out = session.numbering(), {}
     for s in session.steps:
         if s.skip or s.kind in ("note", "section"):
             continue
         try:
-            main = rep.render_step_image(session, s, nums.get(s.id, 0))
+            main = rep.render_step_image(session, s, nums.get(s.id, 0), focus)
         except Exception:
             main = None
         after = None
@@ -287,7 +290,7 @@ def package(session, cfg, description="", duration="", progress=None, reporter=(
     else:
         env_text = ""
     say("Preparing screenshots...")
-    images = collect_images(session)
+    images = collect_images(session, cfg.get("focus", "off"))
     network = network_info() if cfg.get("collect_network") else ""
     tpl = rep.Template(wording="technical", environment=False)
     txt = rep.steps_text(session, tpl)

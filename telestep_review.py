@@ -8,6 +8,7 @@ telestep_review.py - review / edit a recorded session, then export it.
 
 Open it from the toolbar (list icon), automatically after Stop, or:  python telestep_recorder.py --review <folder>
 """
+import dataclasses
 import os
 import tkinter as tk
 from pathlib import Path
@@ -23,7 +24,7 @@ from telestep_model import Session, Step, new_id
 KIND_LABEL = {"click": "Click", "dblclick": "Double-click", "drag": "Drag", "scroll": "Scroll", "shortcut": "Keys",
               "type": "Typing", "shot": "Screenshot", "dialog": "Dialog", "note": "Note", "section": "Section"}
 LEVEL_LABEL = {"note": "Note", "warning": "Warning", "tip": "Tip"}
-PREVIEW_W, PREVIEW_H = 640, 380
+PREVIEW_W, PREVIEW_H = 640, 340
 
 
 class ReviewWindow(tk.Toplevel):
@@ -53,6 +54,7 @@ class ReviewWindow(tk.Toplevel):
         self.var_which = tk.StringVar(value="before")
         self.var_view = tk.StringVar(value="whole")   # whole | close (close-up around the click)
         self.var_zoom = tk.StringVar(value="100%")
+        self.var_focus = tk.StringVar(value=core.FOCUS_MODES.get(tpl.focus, core.FOCUS_MODES["off"]))
         self._crop = (0, 0, 1, 1)                      # part of the screenshot on screen (image pixels)
         self.var_style = tk.StringVar(value=core.MASK_STYLES["soft"])
         self.var_all = tk.BooleanVar(value=False)
@@ -62,11 +64,22 @@ class ReviewWindow(tk.Toplevel):
         self.var_author = tk.StringVar(value=tpl.author)
         self.var_logo = tk.StringVar(value=tpl.logo)
         self.var_env = tk.BooleanVar(value=tpl.environment)
+        self.var_docstyle = tk.StringVar(value=rep.STYLES.get(tpl.style, rep.STYLES["report"]))
+        self._edits = 0  # bumps when pictures are changed (masks) so "unexported changes" is noticed
+        self._exported_sig = None
         fm = formats or {"md": True, "docx": True}
         self.var_fmt = {k: tk.BooleanVar(value=bool(fm.get(k, False))) for k in rep.FORMATS}
         self._build()
         self.refresh()
+        self._style_changed()
+        self.update_idletasks()  # open big enough that every control (the picture included) is visible
+        rw, rh = self.winfo_reqwidth(), self.winfo_reqheight()
+        self.minsize(min(rw, sw - 40, 960), min(rh, sh - 80, 640))
+        self.geometry(f"{min(max(rw, 1120), sw - 40)}x{min(max(rh, 740), sh - 80)}")
+        self._opened_sig = self._state_sig()
         self.protocol("WM_DELETE_WINDOW", self.close)
+        self.bind("<Return>", self._return_key)
+        self.bind("<Control-Return>", lambda e: self.export())
         self.bind("<Delete>", lambda e: self.delete_selected() if self._tree_focus() else None)
         self.bind("<Alt-Up>", lambda e: self.move(-1))
         self.bind("<Alt-Down>", lambda e: self.move(1))
@@ -74,6 +87,10 @@ class ReviewWindow(tk.Toplevel):
 
     # ------------------------------------------------------------------ layout
     def _build(self):
+        if not self.support:
+            # packed first, at the bottom, so it can never be squeezed out when the window is small
+            self.actionbar = ttk.Frame(self, padding=(8, 6, 8, 8))
+            self.actionbar.pack(side="bottom", fill="x")
         root = ttk.Frame(self, padding=6)
         root.pack(fill="both", expand=True)
         root.columnconfigure(0, weight=1)
@@ -152,10 +169,15 @@ class ReviewWindow(tk.Toplevel):
                         command=self._view_changed).pack(side="left", padx=(6, 0))
         ttk.Radiobutton(vbar, text="Close-up of the click", value="close", variable=self.var_view,
                         command=self._view_changed).pack(side="left", padx=(10, 0))
-        self.cmb_zoom = ttk.Combobox(vbar, textvariable=self.var_zoom, values=["50%", "100%", "200%"], width=5,
+        self.cmb_zoom = ttk.Combobox(vbar, textvariable=self.var_zoom, values=["100%", "150%", "200%"], width=5,
                                      state="readonly")
         self.cmb_zoom.pack(side="left", padx=(6, 0))
         self.cmb_zoom.bind("<<ComboboxSelected>>", lambda e: self.show_preview())
+        self.cmb_focus = ttk.Combobox(vbar, textvariable=self.var_focus, values=list(core.FOCUS_MODES.values()),
+                                      state="readonly", width=30)
+        self.cmb_focus.pack(side="right")
+        self.cmb_focus.bind("<<ComboboxSelected>>", lambda e: self.show_preview())
+        ttk.Label(vbar, text="Focus:").pack(side="right", padx=(0, 4))
         info = ttk.Frame(right)
         info.grid(row=2, column=0, sticky="ew", pady=(2, 0))
         self.lbl_info = ttk.Label(info, text="", foreground="gray")
@@ -170,7 +192,7 @@ class ReviewWindow(tk.Toplevel):
         cap = ttk.LabelFrame(right, text="Caption (shown in the report)", padding=6)
         cap.grid(row=3, column=0, sticky="ew", pady=(6, 0))
         cap.columnconfigure(0, weight=1)
-        self.txt = tk.Text(cap, height=4, wrap="word", font=("Segoe UI", 10), undo=True)
+        self.txt = tk.Text(cap, height=3, wrap="word", font=("Segoe UI", 10), undo=True)
         self.txt.grid(row=0, column=0, columnspan=3, sticky="ew")
         self.txt.bind("<FocusOut>", lambda e: self.commit_caption())
         self.btn_reset = ttk.Button(cap, text="Reset to automatic wording", command=self.reset_caption)
@@ -204,29 +226,87 @@ class ReviewWindow(tk.Toplevel):
         out.grid(row=2, column=0, sticky="ew", pady=(6, 0))
         out.columnconfigure(1, weight=1)
         out.columnconfigure(3, weight=1)
-        ttk.Label(out, text="Header").grid(row=0, column=0, sticky="w")
-        ttk.Entry(out, textvariable=self.var_header).grid(row=0, column=1, sticky="ew", padx=(4, 12))
-        ttk.Label(out, text="Footer").grid(row=0, column=2, sticky="w")
-        ttk.Entry(out, textvariable=self.var_footer).grid(row=0, column=3, sticky="ew", padx=(4, 12))
-        ttk.Label(out, text="Author").grid(row=1, column=0, sticky="w", pady=(4, 0))
-        ttk.Entry(out, textvariable=self.var_author).grid(row=1, column=1, sticky="ew", padx=(4, 12), pady=(4, 0))
-        ttk.Label(out, text="Logo").grid(row=1, column=2, sticky="w", pady=(4, 0))
+        ttk.Label(out, text="Style").grid(row=0, column=0, sticky="w")
+        self.cmb_docstyle = ttk.Combobox(out, textvariable=self.var_docstyle, values=list(rep.STYLES.values()),
+                                         state="readonly")
+        self.cmb_docstyle.grid(row=0, column=1, sticky="ew", padx=(4, 12))
+        self.cmb_docstyle.bind("<<ComboboxSelected>>", lambda e: self._style_changed())
+        self.lbl_style = ttk.Label(out, text="", foreground="gray")
+        self.lbl_style.grid(row=0, column=2, columnspan=2, sticky="w")
+        ttk.Label(out, text="Header").grid(row=1, column=0, sticky="w", pady=(4, 0))
+        ttk.Entry(out, textvariable=self.var_header).grid(row=1, column=1, sticky="ew", padx=(4, 12), pady=(4, 0))
+        ttk.Label(out, text="Footer").grid(row=1, column=2, sticky="w", pady=(4, 0))
+        ttk.Entry(out, textvariable=self.var_footer).grid(row=1, column=3, sticky="ew", padx=(4, 12), pady=(4, 0))
+        ttk.Label(out, text="Author").grid(row=2, column=0, sticky="w", pady=(4, 0))
+        ttk.Entry(out, textvariable=self.var_author).grid(row=2, column=1, sticky="ew", padx=(4, 12), pady=(4, 0))
+        ttk.Label(out, text="Logo").grid(row=2, column=2, sticky="w", pady=(4, 0))
         lg = ttk.Frame(out)
-        lg.grid(row=1, column=3, sticky="ew", padx=(4, 12), pady=(4, 0))
+        lg.grid(row=2, column=3, sticky="ew", padx=(4, 12), pady=(4, 0))
         lg.columnconfigure(0, weight=1)
         ttk.Entry(lg, textvariable=self.var_logo).grid(row=0, column=0, sticky="ew")
         ttk.Button(lg, text="...", width=3, command=self.pick_logo).grid(row=0, column=1, padx=(4, 0))
         fm = ttk.Frame(out)
-        fm.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(6, 0))
+        fm.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(6, 0))
+        ttk.Label(fm, text="Save as:").pack(side="left", padx=(0, 8))
         for k, label in rep.FORMATS.items():
             ttk.Checkbutton(fm, text=label, variable=self.var_fmt[k]).pack(side="left", padx=(0, 10))
-        ttk.Checkbutton(fm, text="Environment appendix", variable=self.var_env).pack(side="left", padx=(10, 0))
-        ttk.Button(fm, text="Close", command=self.close).pack(side="right")
-        ttk.Button(fm, text="Open folder", command=self.open_folder).pack(side="right", padx=4)
-        ttk.Button(fm, text="Copy steps as text", command=self.copy_text).pack(side="right", padx=4)
-        ttk.Button(fm, text="Export", command=self.export).pack(side="right", padx=4)
+        self.chk_env = ttk.Checkbutton(fm, text="Environment appendix", variable=self.var_env)
+        self.chk_env.pack(side="left", padx=(10, 0))
         if self.support:
             self._support_layout(root, out)
+        else:
+            self._build_actionbar()
+
+    def _build_actionbar(self):
+        bar = self.actionbar
+        ttk.Separator(self).pack(side="bottom", fill="x", after=bar)
+        bar.columnconfigure(0, weight=1)
+        self.lbl_where = ttk.Label(bar, text=f"Files are saved in:  {self.s.dir}", foreground="gray")
+        self.lbl_where.grid(row=0, column=0, sticky="w")
+        ttk.Button(bar, text="Close", command=self.close).grid(row=0, column=4, padx=(6, 0))
+        ttk.Button(bar, text="Open folder", command=self.open_folder).grid(row=0, column=3, padx=(6, 0))
+        ttk.Button(bar, text="Copy steps as text", command=self.copy_text).grid(row=0, column=2, padx=(6, 0))
+        self.btn_export = tk.Button(bar, text="Export", command=self.export, bg="#1565c0", fg="white", relief="flat",
+                                    activebackground="#0d47a1", activeforeground="white", cursor="hand2",
+                                    font=("Segoe UI", 11, "bold"), padx=22, pady=4, default="active")
+        self.btn_export.grid(row=0, column=1, padx=(10, 0))
+
+    def _style_changed(self):
+        """Documentation styles leave out timestamps, window/app details, dialog dumps and the environment."""
+        docs = self.style_key != "report"
+        if docs:
+            if not getattr(self, "_env_before", None):
+                self._env_before = [self.var_env.get()]
+            self.var_env.set(False)
+            self.chk_env.state(["disabled"])
+        else:
+            if getattr(self, "_env_before", None):
+                self.var_env.set(self._env_before[0])
+                self._env_before = None
+            self.chk_env.state(["!disabled"])
+        self.lbl_style.configure(text={
+            "report": "Everything: times, window and app details, dialog text and the environment appendix.",
+            "docs": "Steps and pictures only - ready to edit into a user guide.",
+            "onesheet": "Steps and small pictures side by side, aiming for one page."}[self.style_key])
+
+    @property
+    def focus_key(self):
+        return next((k for k, v in core.FOCUS_MODES.items() if v == self.var_focus.get()), "off")
+
+    @property
+    def style_key(self):
+        return next((k for k, v in rep.STYLES.items() if v == self.var_docstyle.get()), "report")
+
+    def _return_key(self, e):
+        try:
+            cls = self.focus_get().winfo_class()
+        except (KeyError, AttributeError):
+            cls = ""
+        if cls in ("Text", "TEntry", "Entry", "TCombobox", "TButton", "Button", "TCheckbutton", "TRadiobutton",
+                   "TSpinbox"):
+            return None  # Enter belongs to the control that has the focus
+        self.export()
+        return "break"
 
     def _support_layout(self, root, out):
         """Replace the report options with a plain 'check, then send' bar."""
@@ -328,7 +408,7 @@ class ReviewWindow(tk.Toplevel):
             return None
         if self.var_which.get() == "after" and st.raw_after and (self.s.dir / st.raw_after).exists():
             return Image.open(self.s.dir / st.raw_after).convert("RGB")
-        return rep.render_step_image(self.s, st, self.s.numbering().get(st.id))
+        return rep.render_step_image(self.s, st, self.s.numbering().get(st.id), self.focus_key)
 
     def show_preview(self):
         self.cv.delete("all")
@@ -339,6 +419,12 @@ class ReviewWindow(tk.Toplevel):
         st = self._cur
         img = self._current_image() if st else None
         cw, ch = max(self.cv.winfo_width(), 100), max(self.cv.winfo_height(), 100)
+        if self.cv.winfo_height() > 1 and self.cv.winfo_height() < 170:
+            self.cv.create_text(cw // 2, ch // 2, fill="#ffcc80", font=("Segoe UI", 10, "bold"), justify="center",
+                                text="The picture area is too small.\nMake this window taller (or maximize it).")
+            self._photo = None
+            self._update_hint()
+            return
         if img is None:
             msg = "Select a single step to see its screenshot" if not st else "(no screenshot for this entry)"
             if st and st.kind in ("note", "section"):
@@ -354,7 +440,7 @@ class ReviewWindow(tk.Toplevel):
         close = self.var_view.get() == "close" and pt
         self.cmb_zoom.state(["!disabled"] if pt else ["disabled"])
         if close:
-            k = {"50%": 0.5, "100%": 1.0, "200%": 2.0}.get(self.var_zoom.get(), 1.0)
+            k = {"100%": 1.0, "150%": 1.5, "200%": 2.0}.get(self.var_zoom.get(), 1.0)
             vw, vh = min(W, int(cw / k)), min(H, int(ch / k))
             x0 = int(min(max(0, pt[0] - vw / 2), W - vw))
             y0 = int(min(max(0, pt[1] - vh / 2), H - vh))
@@ -643,6 +729,8 @@ class ReviewWindow(tk.Toplevel):
                 core.apply_mask(im, (rect[0] * fx, rect[1] * fy, rect[2] * fx, rect[3] * fy), style, "Hidden")
                 im.save(p, "JPEG", quality=92)
                 count += 1
+        if count:
+            self._edits += 1
         self.show_preview()
         return count
 
@@ -793,9 +881,19 @@ class ReviewWindow(tk.Toplevel):
             self.var_logo.set(f)
 
     def template(self):
-        return rep.Template(wording=self.wording, header=self.var_header.get().strip(),
-                            footer=self.var_footer.get().strip(), logo=self.var_logo.get().strip(),
-                            author=self.var_author.get().strip(), environment=self.var_env.get())
+        return dataclasses.replace(
+            self.tpl, wording=self.wording, header=self.var_header.get().strip(),
+            footer=self.var_footer.get().strip(), logo=self.var_logo.get().strip(),
+            author=self.var_author.get().strip(), style=self.style_key, focus=self.focus_key,
+            environment=(self._env_before[0] if getattr(self, "_env_before", None) else self.var_env.get()))
+
+    def _state_sig(self):
+        steps = [(st.id, st.kind, st.skip, st.custom, st.friendly, st.tech, st.level) for st in self.s.steps]
+        fm = tuple(k for k, v in self.var_fmt.items() if v.get())
+        return repr((self.template().to_dict(), steps, self.var_title.get(), fm, self._edits))
+
+    def _has_outputs(self):
+        return any((self.s.dir / f"steps.{ext}").exists() for ext in rep.WRITERS)
 
     def save(self):
         self.commit_caption()
@@ -820,9 +918,14 @@ class ReviewWindow(tk.Toplevel):
             lines = [f"{rep.FORMATS.get(k, k)}: " + ("saved" if not v.startswith("FAILED") else v)
                      for k, v in self.exported.items()]
             bad = any(v.startswith("FAILED") for v in self.exported.values())
-            (messagebox.showwarning if bad else messagebox.showinfo)(
-                "Telestep", "\n".join(lines) + (f"\n\nDetails: {self.s.dir / 'save_errors.log'}" if bad else ""),
-                parent=self)
+            if bad:
+                messagebox.showwarning("Telestep", "\n".join(lines) + f"\n\nDetails: {self.s.dir / 'save_errors.log'}",
+                                       parent=self)
+            elif messagebox.askyesno("Telestep", "\n".join(lines) + f"\n\nSaved in:\n{self.s.dir}\n\nOpen the folder now?",
+                                     parent=self):
+                self.open_folder()
+        if not any(str(v).startswith("FAILED") for v in self.exported.values()):
+            self._exported_sig = self._state_sig()
         return self.exported
 
     def copy_text(self):
@@ -837,7 +940,27 @@ class ReviewWindow(tk.Toplevel):
         except Exception as e:
             messagebox.showerror("Telestep", f"Could not open folder:\n{e}", parent=self)
 
+    def _unexported(self):
+        if self.support or not any(not st.skip for st in self.s.steps):
+            return False
+        sig = self._state_sig()
+        if sig == self._exported_sig:
+            return False
+        return sig != self._opened_sig or not self._has_outputs()  # untouched + already has files: just looking
+
     def close(self):
+        if self._unexported():
+            ans = messagebox.askyesnocancel(
+                "Telestep",
+                "This recording hasn't been exported yet, so there is no report file to find.\n\n"
+                "Yes  -  export now, then close\nNo  -  close without exporting (your edits stay saved in the "
+                "recording folder)\nCancel  -  keep editing", parent=self)
+            if ans is None:
+                return
+            if ans:
+                res = self.export()
+                if not res or any(str(v).startswith("FAILED") for v in res.values()):
+                    return
         self.save()
         self.destroy()
         if self.support:

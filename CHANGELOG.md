@@ -1,7 +1,44 @@
 # Changelog
 
 ## Unreleased
+
+- Privacy tab: one "Use OCR" switch turns OCR redaction and click labelling on or off while keeping your ticked options (they grey out when it is off). It is saved with the settings and shown in the toolbar summary.
+
+- Backlog guard: if a slow computer falls behind, Telestep warns at 25 waiting clicks and pauses capturing at 60 (each waiting click holds a full screenshot in memory), then resumes by itself at 15. The toolbar shows "Catching up" while paused.
+- Privacy tab: note that OCR is the slowest part of recording.
+
+- Debug log has headers: one line per app start (version, Windows, CPU threads), and one per recording (title, folder, capture mode, screens, redaction/label OCR, saved step count and total time). It starts over past 2 MB.
+
+- OCR redaction remembers each monitor's last picture: a monitor that hasn't visibly changed since the previous click is not read again (a changed monitor, or even one new line of text, always is). Typically 2-3x faster on multi-monitor setups.
+- "Near text" labels are now read from the full-size picture instead of the downsized one (multi-monitor pictures were shrunk until the text was unreadable) and look further from the click, so clicking blank space in a card can still name the card.
+
+- The debug log's slow-step lines now break the time down (lookup, redact, label-ocr, save, app-info, after-wait).
+
+- OCR redaction on multi-monitor screenshots reads the picture in parallel strips: about 8x faster in testing (18 s -> 2 s for three 1920-wide screens), and finds slightly more text.
+- Cleaner "near text" labels: light-on-dark (dark mode) text is read properly, low-confidence words are dropped, and fragments that don't look like words are left out instead of recorded.
+
+- Slow programs (Chrome web apps, Electron): if looking up the clicked control takes over 2.5 s twice for the same program, later clicks in it are named by window title instead, so recording keeps up. Screenshots are unaffected.
+- About page: "Open the log folder" link.
+
+- Fix: when processing lagged behind your clicks (OCR on several monitors), a click could be labelled "Desktop" and miss the Focus blur, because the window under the pointer was looked up late. The window's position is now measured at click time, and an element from a different program is ignored.
+- Toolbar counter shows clicks still being processed ("● REC 12 +3 steps").
+
+- Toolbar shows a one-line summary while idle and Settings is closed (title, screen, redaction, what happens on stop). Click it to open Settings.
+
+- Stopping a recording no longer freezes the window: saving runs in the background and the toolbar shows "Saving... N steps left".
+- `telestep_debug.log` now notes any step that takes over 2 s to process (with the redaction time), to pinpoint slow multi-monitor saves.
 - Support mode (`--support`, `build_support_exe.bat`): one-button recorder that writes a single ZIP with a one-sheet report for IT.
+- Focus option: blur everything except the clicked window or control (review window, Report tab, and `"focus"` in the
+  Support config). Report pictures only; the saved screenshots are never changed.
+- Review window: starts from the toolbar's Header/Footer/Author/Logo for a new recording, opens big enough to show the
+  picture (with a message if the screen is too small), close-up zoom is 100/150/200%, and one-sheet pictures line up
+  across a row even when a caption wraps.
+- Documentation mode: report Style = Technical report / Documentation / Documentation - one sheet (no timestamps, window
+  details, dialog dumps or environment; automatic technical entries dropped; condensed grid layout for one sheet).
+- Review window: the action bar (Export, Copy steps, Open folder, Close) is always visible; Export is the blue default
+  button (Enter / Ctrl+Enter), shows where files were saved and offers to open the folder; closing with unexported
+  changes asks first.
+- Footer, author and logo are larger and now also in the plain-text and Markdown exports.
 - The capture outline (preview) now shows only while Telestep is the active window and Settings is on the Capture or
   Privacy tab; the "Show capture outline" checkbox on the Capture tab turns it off.
 - The capture outline follows setting changes immediately (it could show a stale area in Window mode).

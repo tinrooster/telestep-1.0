@@ -47,6 +47,7 @@ class Step:
     geom: dict = None  # {"left","top","scale"}: screen -> saved-image mapping
     el: dict = None  # {"name","kind","inherited","button","x","y"} clicked UI element
     skip: bool = False  # excluded from reports but kept in the session
+    auto: bool = False  # made by Telestep itself (e.g. admin-window warning), not by the person
 
     def caption(self, wording="friendly"):
         if self.custom:

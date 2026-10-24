@@ -12,5 +12,6 @@
   "collect_network": true,
   "include_session": false,
   "review": "ask",
+  "focus": "off",
   "ocr_labels": true
 }

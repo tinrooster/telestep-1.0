@@ -190,7 +190,14 @@ class Recorder:
         if not pressed:
             self._on_release(x, y, name)
             return
+        if not self._backlog_ok():
+            self._press = None
+            return
         info = window_info(x, y)
+        try:
+            info["wrect"] = core.window_rect(x, y)  # measured now: the worker may get to this click seconds later
+        except Exception:
+            info["wrect"] = None
         if self._ignored(x, y, info["title"]):
             self._press = None
             return
@@ -237,7 +244,7 @@ class Recorder:
             holder.done.set()
 
     def on_scroll(self, x, y, dx, dy):
-        if not self.o.scroll or self.paused or self.stop_evt.is_set() or self._ignored(x, y):
+        if not self.o.scroll or self.paused or self.stop_evt.is_set() or self._ignored(x, y) or self.holding:
             return
         with self._slock:
             sc = self._scroll or {"x": x, "y": y, "dy": 0.0}
@@ -268,7 +275,7 @@ class Recorder:
     def manual_shot(self, pos=None, from_menu=False):
         """Screenshot without a click (hotkey / toolbar button).  Uses the cursor position to pick the area.
         from_menu=True (tray or right-click menu): the cursor is over the menu, so use the last click instead."""
-        if self.paused or self.stop_evt.is_set():
+        if self.paused or self.stop_evt.is_set() or not self._backlog_ok():
             return
         pos = pos or (self._last_pos if from_menu else None) or cursor_pos() or self._last_pos
         cap = self.cap
@@ -295,6 +302,31 @@ class Recorder:
 
     def undo_last(self):
         self.q.put(("undo",))
+
+    # Each queued click holds a full-size screenshot (about 18 MB on three monitors), so a machine that cannot
+    # keep up must not pile them up without limit.
+    WARN_AT, HOLD_AT, RESUME_AT = 25, 60, 15
+    holding = False
+    _backlog_warned = False
+
+    def _backlog_ok(self):
+        """False while the processing queue is too long to take more screenshots (events tell the toolbar)."""
+        n = self.q.qsize()
+        if self.holding:
+            if n > self.RESUME_AT:
+                return False
+            self.holding = False
+            self.events.put(("backlog", "resumed", n))
+        elif n >= self.HOLD_AT:
+            self.holding = True
+            self.events.put(("backlog", "hold", n))
+            return False
+        if n >= self.WARN_AT and not self._backlog_warned:
+            self._backlog_warned = True
+            self.events.put(("backlog", "warn", n))
+        elif n < self.RESUME_AT:
+            self._backlog_warned = False
+        return True
 
     def toggle_pause(self):
         self.paused = not self.paused
@@ -422,7 +454,7 @@ class Recorder:
                 continue
 
     # ------------------------------------------------------------------ processing (worker thread)
-    def _describe(self, auto, x, y):
+    def _describe(self, auto, x, y, pid=None):
         """Return (name, kind, rect, is_password, inherited) for the UI element at the point.
 
         If the element itself has no name (common for Chrome/Electron/Word "Pane" elements),
@@ -430,10 +462,30 @@ class Recorder:
         """
         if auto is None:
             return "", "", None, False, False
+        slow = self.__dict__.setdefault("_slow_uia", {})  # pid -> count of lookups that took over 2.5 s
+        if pid and slow.get(pid, 0) >= 2:
+            return "", "", None, False, False  # this program answers too slowly: describe it by its window title
+        t0 = time.monotonic()
+        try:
+            return self._describe_inner(auto, x, y, pid)
+        finally:
+            took = time.monotonic() - t0
+            if pid and took > 2.5:
+                slow[pid] = slow.get(pid, 0) + 1
+                if slow[pid] == 2:
+                    self.events.put(("warn", "This program is slow to describe its buttons, so later clicks in it "
+                                             "are named by window instead (the screenshots are unaffected)."))
+
+    def _describe_inner(self, auto, x, y, pid=None):
         try:
             c = auto.ControlFromPoint(x, y)
             if c is None:
                 return "", "", None, False, False
+            try:  # the worker can run seconds behind the click: ignore an element from a different program
+                if pid and c.ProcessId and c.ProcessId != pid:
+                    return "", "", None, False, False
+            except Exception:
+                pass
             name = (c.Name or "").strip().replace("\n", " ")[:80]
             kind = (c.ControlTypeName or "").replace("Control", "")
             r = c.BoundingRectangle
@@ -488,9 +540,16 @@ class Recorder:
 
     def _prepare(self, img):
         """Redact sensitive-looking text (optional) and downscale.  Returns (image, scale)."""
+        t0 = time.monotonic()
+        try:
+            return self._prepare_inner(img)
+        finally:
+            self._prep_s = time.monotonic() - t0
+
+    def _prepare_inner(self, img):
         if self.o.ocr_kinds:
             try:
-                ocr_redact(img, self.o.ocr_kinds, self.o.ocr_style)
+                ocr_redact(img, self.o.ocr_kinds, self.o.ocr_style, cache=self.__dict__.setdefault("_ocr_cache", {}))
             except OcrUnavailable:
                 if not self._warned_ocr:
                     self._warned_ocr = True
@@ -509,9 +568,23 @@ class Recorder:
 
     def _new(self, kind, when, friendly, tech, info=None, **kw):
         info = info or {}
-        app = core.app_info(info.get("pid", 0)) if info.get("pid") else {}
+        with self._stage("app-info"):
+            app = core.app_info(info.get("pid", 0)) if info.get("pid") else {}
         return Step(new_id(), kind, when.strftime("%H:%M:%S"), friendly, tech, window=info.get("title", ""),
                     app=app.get("app", ""), app_version=app.get("version", ""), **kw)
+
+    def _win_marker(self, geom, x, y, wr=None):
+        """The clicked window's rectangle in picture pixels (used by the 'blur all but the window' option).
+        `wr` is the rectangle measured at click time; asking again later (the queue can lag) finds whatever
+        is under that point by then."""
+        try:
+            wr = wr or core.window_rect(x, y)
+            if wr:
+                return (self._map(geom, wr["left"], wr["top"])
+                        + self._map(geom, wr["left"] + wr["width"], wr["top"] + wr["height"]))
+        except Exception:
+            pass
+        return None
 
     def _map(self, geom, x, y):
         return [round((x - geom["left"]) * geom["scale"], 1), round((y - geom["top"]) * geom["scale"], 1)]
@@ -527,8 +600,15 @@ class Recorder:
                 item = self.q.get()
                 if item is None:
                     break
+                t0 = time.monotonic()
+                self._stages = {}
                 try:
                     getattr(self, "_do_" + item[0])(auto, *item[1:])
+                    took = time.monotonic() - t0
+                    if took > 2.0 and self.slow_log:
+                        self.slow_log(f"step '{item[0]}' took {took:.1f}s ("
+                                      + ", ".join(f"{k} {v:.1f}s" for k, v in self._stages.items() if v >= 0.05)
+                                      + f"; {self.q.qsize()} still queued)")
                 except Exception as e:  # one bad step must never lose the rest of the session
                     self.events.put(("warn", f"Skipped a step ({type(e).__name__}: {e})"))
 
@@ -545,6 +625,7 @@ class Recorder:
     def _do_warn(self, auto, when, text):
         st = self._new("note", when, text, text)
         st.level = "warning"
+        st.auto = True
         self.session.add(st)
 
     def _do_undo(self, auto):
@@ -554,15 +635,29 @@ class Recorder:
             self.session.save()
             self.events.put(("undone", st.caption(self.o.wording)[:40]))
 
+    @contextlib.contextmanager
+    def _stage(self, name):
+        """Add the time spent in the block to this step's breakdown (shown in the debug log for slow steps)."""
+        t0 = time.monotonic()
+        try:
+            yield
+        finally:
+            d = self.__dict__.setdefault("_stages", {})
+            d[name] = d.get(name, 0.0) + time.monotonic() - t0
+
     def _do_click(self, auto, when, x, y, btn, img, box, info, holder):
-        name, ckind, rect, pw, inherited = self._describe(auto, x, y)
+        with self._stage("lookup"):
+            name, ckind, rect, pw, inherited = self._describe(auto, x, y, info.get("pid"))
         self._last_pw = pw
         el = {"name": name, "kind": ckind, "inherited": inherited, "button": btn, "x": x, "y": y}
-        img, scale = self._prepare(img)  # redaction and masks happen first, so OCR below can't read hidden text
+        full = img  # full-size picture: label OCR needs it, the downsized one is unreadable on multi-monitor
+        with self._stage("redact"):
+            img, scale = self._prepare(img)  # redaction and masks happen first, so OCR below can't read hidden text
         geom = {"left": box["left"], "top": box["top"], "scale": scale}
-        marker = {"shape": "click", "pt": self._map(geom, x, y), "rect": None}
+        marker = {"shape": "click", "pt": self._map(geom, x, y), "rect": None, "win": self._win_marker(geom, x, y, info.get("wrect"))}
         if self.o.ocr_labels and not pw and (not name or ckind in CONTAINER_KINDS):
-            near = self._label_near(img, marker["pt"])
+            with self._stage("label-ocr"):
+                near = self._label_near(full, (x - box["left"], y - box["top"]))
             if near:
                 el["near"] = near
         friendly, tech = click_texts("click", el)
@@ -571,22 +666,27 @@ class Recorder:
         st = self._new("click", when, friendly, tech, info, marker=marker, geom=geom, el=el)
         if info.get("cls") in DIALOG_CLASSES:
             st.dialog_text = clean_text("\n".join(self._dialog_info(auto, info["hwnd"])[0]))
-        st.raw = self._save_raw(st.id, img)
+        with self._stage("save"):
+            st.raw = self._save_raw(st.id, img)
         if holder is not None:
-            holder.done.wait(self.o.after_delay_ms / 1000.0 + 3)
+            with self._stage("after-wait"):
+                holder.done.wait(self.o.after_delay_ms / 1000.0 + 3)
             if holder.img is not None:
-                after, _ = self._prepare(holder.img)
-                if self.o.after_mode == "replace":
-                    st.raw = self._save_raw(st.id, after)
-                else:
-                    st.raw_after = self._save_raw(st.id, after, "_after")
-        self.session.add(st)
+                with self._stage("redact"):
+                    after, _ = self._prepare(holder.img)
+                with self._stage("save"):
+                    if self.o.after_mode == "replace":
+                        st.raw = self._save_raw(st.id, after)
+                    else:
+                        st.raw_after = self._save_raw(st.id, after, "_after")
+        with self._stage("session"):
+            self.session.add(st)
 
     def _label_near(self, img, pt):
         if self._ocr_ok is False:
             return ""
         try:
-            text = core.ocr_label_near(img, pt[0], pt[1])
+            text = core.ocr_label_near(img, pt[0], pt[1], half_w=300, half_h=90, max_dist=130)
             self._ocr_ok = True
             return text
         except core.OcrUnavailable:
@@ -625,13 +725,14 @@ class Recorder:
         self.session.save()
 
     def _do_scroll(self, auto, when, x, y, dy, img, box, info):
-        name = self._describe(auto, x, y)[0]
+        name = self._describe(auto, x, y, info.get("pid"))[0]
         direction = "up" if dy > 0 else "down"
         friendly, tech = scroll_texts(direction, name)
         img, scale = self._prepare(img)
         geom = {"left": box["left"], "top": box["top"], "scale": scale}
         st = self._new("scroll", when, friendly, tech, info, geom=geom,
-                       marker={"shape": "scroll", "pt": self._map(geom, x, y), "dir": direction})
+                       marker={"shape": "scroll", "pt": self._map(geom, x, y), "dir": direction,
+                               "win": self._win_marker(geom, x, y, info.get("wrect"))})
         st.raw = self._save_raw(st.id, img)
         self.session.add(st)
 
@@ -700,6 +801,11 @@ class Recorder:
         if self.o.key_mode != "none" or self._hk_fallback:
             self._kl = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
             self._kl.start()
+
+    slow_log = None  # optional callable(str); the app points it at its debug log
+
+    def pending(self):
+        return self.q.qsize()
 
     def stop(self):
         """Stop listeners, drain the queue, save, return the Session."""
