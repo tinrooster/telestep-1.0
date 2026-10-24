@@ -1,0 +1,199 @@
+{
+ "format": 2,
+ "recorder": "Android 0.1",
+ "title": "Recorded steps",
+ "created": "2026-10-24T14:31:11",
+ "host": "Pixel 8",
+ "environment": {
+  "Device": "Google Pixel 8"
+ },
+ "settings": {},
+ "steps": [
+  {
+   "id": "491e3244",
+   "kind": "click",
+   "when": "14:05:09",
+   "friendly": "Select \"Wi-Fi\"",
+   "tech": "Tap on \"Wi-Fi\" (ListItem)",
+   "custom": "",
+   "level": "",
+   "window": "Network & internet",
+   "app": "Settings",
+   "app_version": "14",
+   "dialog_text": "",
+   "raw": "raw/491e3244.jpg",
+   "raw_after": "raw/491e3244_after.jpg",
+   "image": "",
+   "image_after": "",
+   "marker": {
+    "shape": "click",
+    "pt": [
+     270.0,
+     130.0
+    ],
+    "rect": [
+     0.0,
+     100.0,
+     540.0,
+     160.0
+    ],
+    "win": null
+   },
+   "geom": {
+    "left": 0,
+    "top": 0,
+    "scale": 0.5
+   },
+   "el": {
+    "name": "Wi-Fi",
+    "kind": "ListItem",
+    "inherited": false,
+    "button": "left",
+    "x": 540,
+    "y": 260,
+    "touch": "tap"
+   },
+   "skip": false,
+   "auto": false,
+   "comment": "",
+   "audio": "",
+   "apos": -1.0,
+   "path": null,
+   "marks": null
+  },
+  {
+   "id": "021a36a3",
+   "kind": "scroll",
+   "when": "14:05:09",
+   "friendly": "Scroll down in \"Networks\"",
+   "tech": "Scroll down in \"Networks\"",
+   "custom": "",
+   "level": "",
+   "window": "Network & internet",
+   "app": "Settings",
+   "app_version": "14",
+   "dialog_text": "",
+   "raw": "raw/021a36a3.jpg",
+   "raw_after": "",
+   "image": "",
+   "image_after": "",
+   "marker": {
+    "shape": "scroll",
+    "pt": [
+     250.0,
+     450.0
+    ],
+    "dir": "down",
+    "win": null
+   },
+   "geom": {
+    "left": 0,
+    "top": 0,
+    "scale": 0.5
+   },
+   "el": null,
+   "skip": false,
+   "auto": false,
+   "comment": "",
+   "audio": "",
+   "apos": -1.0,
+   "path": null,
+   "marks": null
+  },
+  {
+   "id": "b90b4744",
+   "kind": "scroll",
+   "when": "14:05:09",
+   "friendly": "Scroll up in \"Networks\"",
+   "tech": "Scroll up in \"Networks\"",
+   "custom": "",
+   "level": "",
+   "window": "Network & internet",
+   "app": "Settings",
+   "app_version": "14",
+   "dialog_text": "",
+   "raw": "raw/b90b4744.jpg",
+   "raw_after": "",
+   "image": "",
+   "image_after": "",
+   "marker": {
+    "shape": "scroll",
+    "pt": [
+     250.0,
+     450.0
+    ],
+    "dir": "up",
+    "win": null
+   },
+   "geom": {
+    "left": 0,
+    "top": 0,
+    "scale": 0.5
+   },
+   "el": null,
+   "skip": false,
+   "auto": false,
+   "comment": "",
+   "audio": "",
+   "apos": -1.0,
+   "path": null,
+   "marks": null
+  },
+  {
+   "id": "d19edffa",
+   "kind": "type",
+   "when": "14:05:09",
+   "friendly": "Type some text (5 characters)",
+   "tech": "Typed text (5 characters)",
+   "custom": "",
+   "level": "",
+   "window": "Network & internet",
+   "app": "Settings",
+   "app_version": "14",
+   "dialog_text": "",
+   "raw": "",
+   "raw_after": "",
+   "image": "",
+   "image_after": "",
+   "marker": null,
+   "geom": null,
+   "el": null,
+   "skip": false,
+   "auto": false,
+   "comment": "",
+   "audio": "",
+   "apos": -1.0,
+   "path": null,
+   "marks": null
+  },
+  {
+   "id": "4ed610f9",
+   "kind": "dialog",
+   "when": "14:05:09",
+   "friendly": "A dialog appeared: \"Forget network?\"",
+   "tech": "Dialog window \"Forget network?\"",
+   "custom": "",
+   "level": "",
+   "window": "Network & internet",
+   "app": "Settings",
+   "app_version": "14",
+   "dialog_text": "Forget network?\nSaved password will be removed",
+   "raw": "",
+   "raw_after": "",
+   "image": "",
+   "image_after": "",
+   "marker": {
+    "shape": "none"
+   },
+   "geom": null,
+   "el": null,
+   "skip": false,
+   "auto": false,
+   "comment": "",
+   "audio": "",
+   "apos": -1.0,
+   "path": null,
+   "marks": null
+  }
+ ]
+}
