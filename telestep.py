@@ -524,10 +524,8 @@ class App:
                         variable=self.var_assign).pack(anchor="w")
         asg.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         links = ttk.Frame(t)
-        ttk.Button(links, text="Windows sound settings", command=lambda: self._open_ms("ms-settings:sound")
-                   ).pack(side="left")
-        ttk.Button(links, text="Microphone privacy", command=lambda: self._open_ms("ms-settings:privacy-microphone")
-                   ).pack(side="left", padx=(6, 0))
+        for i, (label, uri) in enumerate(core.plat.SOUND_LINKS):
+            ttk.Button(links, text=label, command=lambda u=uri: self._open_ms(u)).pack(side="left", padx=(6 if i else 0, 0))
         links.grid(row=8, column=0, columnspan=2, sticky="w", pady=(8, 0))
         ttk.Label(t, text="Voice is saved as-is: the hide tools and the privacy check do not cover it.",
                   foreground="gray", wraplength=int(330 * self.scale), justify="left"
@@ -552,11 +550,11 @@ class App:
         if self.var_audio_dev.get() not in names:
             self.var_audio_dev.set(ta.DEFAULT_NAME)  # the chosen microphone is not plugged in right now
         if not ta.available():
-            self.var_atest.set("Voice recording needs Windows.")
+            self.var_atest.set(ta.UNAVAILABLE[:1].upper() + ta.UNAVAILABLE[1:] + ".")
             self.btn_atest.state(["disabled"])
         elif len(names) == 1:
-            self.var_atest.set("Windows reports no microphone. Plug one in (or enable it in Windows sound settings), "
-                               "then click Refresh.")
+            self.var_atest.set(f"{core.plat.SYSTEM_NAME} reports no microphone. Plug one in (or enable it in "
+                               f"{core.plat.SOUND_SETTINGS}), then click Refresh.")
 
     def _audio_device_changed(self):
         name = self.var_audio_dev.get()
@@ -565,9 +563,9 @@ class App:
 
     def _open_ms(self, uri):
         try:
-            os.startfile(uri)  # Windows only
+            core.plat.open_path(uri)
         except Exception:
-            self.toast("Open Windows Settings > System > Sound (or Privacy > Microphone).", 6)
+            self.toast(core.plat.SOUND_HELP, 6)
 
     def _audio_test(self):
         if self._atest:
@@ -614,7 +612,7 @@ class App:
             self.var_atest.set(f"Microphone works (loudest {int(peak * 100)}%). Play back to hear what it recorded.")
         elif saved:
             self.var_atest.set("The microphone opened but heard (almost) nothing. Check the device above, the "
-                               "microphone's volume/mute in Windows sound settings, and Microphone privacy.")
+                               f"microphone's volume/mute in {core.plat.SOUND_SETTINGS}, and Microphone privacy.")
         else:
             self.var_atest.set("The test recorded nothing: " + (n.error or "no audio"))
 
@@ -1787,7 +1785,7 @@ class App:
         target = self.out_dir if self.out_dir and self.out_dir.exists() else self.base
         target.mkdir(parents=True, exist_ok=True)
         try:
-            os.startfile(str(target))  # Windows only
+            core.plat.open_path(target)
         except Exception as e:
             self.ask("showerror", f"Could not open folder:\n{e}")
 
@@ -1834,8 +1832,7 @@ class App:
                     self.flash_until = time.monotonic() + 0.18
                 if self.var_sound.get():
                     try:
-                        import winsound
-                        threading.Thread(target=winsound.Beep, args=(1400, 25), daemon=True).start()
+                        core.plat.beep(1400, 25)
                     except Exception:
                         pass
             elif ev[0] == "note":

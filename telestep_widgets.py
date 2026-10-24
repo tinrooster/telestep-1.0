@@ -2,7 +2,6 @@
 telestep_widgets.py - Tk building blocks for the Telestep toolbar: icons, tooltips, click-through
 screen overlays (capture frame / masks / taskbar), the area picker, note and window-picker dialogs.
 """
-import ctypes
 import json
 import os
 import shutil
@@ -25,28 +24,18 @@ COL_REC, COL_PAUSE, COL_PREVIEW = "#e53935", "#f59e0b", "#2979ff"
 COL_MASK, COL_EXCL, COL_FLASH = "#d500f9", "#757575", "#ffffff"
 
 
-# ---------- small Windows helpers (all no-ops elsewhere) ----------
-def _hwnd(widget):
-    return ctypes.windll.user32.GetAncestor(widget.winfo_id(), 2)  # GA_ROOT
-
-
+# ---------- our own windows and the OS (telestep_platform; no-ops where unsupported) ----------
 def exclude_from_capture(widget, on=True):
     try:
         widget.update_idletasks()
-        ctypes.windll.user32.SetWindowDisplayAffinity(_hwnd(widget), 0x11 if on else 0)  # WDA_EXCLUDEFROMCAPTURE
     except Exception:
-        pass
+        return
+    core.plat.exclude_from_capture(widget, on)
 
 
 def window_screen_rect(widget):
     """Screen rectangle (l, t, r, b) of a Tk window including its title bar, or None."""
-    try:
-        from ctypes import wintypes
-        rc = wintypes.RECT()
-        ctypes.windll.user32.GetWindowRect(_hwnd(widget), ctypes.byref(rc))
-        return (rc.left, rc.top, rc.right, rc.bottom)
-    except Exception:
-        return None
+    return core.plat.widget_screen_rect(widget)
 
 
 def list_screens():
@@ -194,21 +183,14 @@ class Overlay(tk.Toplevel):
         self.withdraw()
 
     def apply_affinity(self):
-        try:
-            ctypes.windll.user32.SetWindowDisplayAffinity(_hwnd(self), 0x11 if self.hide_fn() else 0)
-        except Exception:
-            pass
+        core.plat.exclude_from_capture(self, bool(self.hide_fn()))
 
     def _style(self):
         try:
             self.update_idletasks()
-            user32 = ctypes.windll.user32
-            hwnd = _hwnd(self)
-            ex = user32.GetWindowLongW(hwnd, -20)  # GWL_EXSTYLE
-            # LAYERED | TRANSPARENT (click-through) | TOOLWINDOW | NOACTIVATE
-            user32.SetWindowLongW(hwnd, -20, ex | 0x80000 | 0x20 | 0x80 | 0x08000000)
         except Exception:
             pass
+        core.plat.make_click_through(self)
         self.apply_affinity()
 
     def show(self, l, t, w=None, h=None, bg=None, text=None):
@@ -614,7 +596,7 @@ class SessionPicker(tk.Toplevel):
         _iid, d = self._selected()
         if d:
             try:
-                os.startfile(str(d))  # Windows only
+                core.plat.open_path(d)
             except Exception as e:
                 messagebox.showerror("Telestep", f"Could not open the folder:\n{e}", parent=self)
 

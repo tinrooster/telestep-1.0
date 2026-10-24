@@ -20,7 +20,6 @@ import json
 import os
 import queue
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
@@ -32,6 +31,7 @@ from tkinter import messagebox, ttk
 
 from PIL import Image
 
+import telestep_platform as plat
 import telestep_recorder as sr
 import telestep_report as rep
 import telestep_widgets as w
@@ -93,31 +93,15 @@ def load_config(path=None):
 
 def windows_identity():
     """(display name, e-mail-style sign-in name) of the signed-in user when Windows knows them, else (login name, '')."""
-    name = upn = ""
-    try:
-        import ctypes
-        for fmt in (3, 8):  # NameDisplay, NameUserPrincipal
-            buf = ctypes.create_unicode_buffer(256)
-            size = ctypes.c_ulong(256)
-            val = buf.value if ctypes.windll.secur32.GetUserNameExW(fmt, buf, ctypes.byref(size)) else ""
-            if fmt == 3:
-                name = val
-            else:
-                upn = val
-    except Exception:
-        pass
+    name, upn = plat.user_identity()
     return (name or os.environ.get("USERNAME") or os.environ.get("USER") or "", upn if "@" in upn else "")
 
 
 def desktop_dir():
     """The real Desktop folder (follows OneDrive redirection), falling back to the home folder."""
-    try:
-        import ctypes
-        buf = ctypes.create_unicode_buffer(260)
-        if ctypes.windll.shell32.SHGetFolderPathW(None, 0x10, None, 0, buf) == 0 and buf.value:
-            return Path(buf.value)
-    except Exception:
-        pass
+    d = plat.desktop_dir()
+    if d:
+        return d
     d = Path.home() / "Desktop"
     return d if d.exists() else Path.home()
 
@@ -137,13 +121,8 @@ def temp_root():
 
 
 def network_info():
-    """`ipconfig /all` as text ('' if unavailable).  Windows only."""
-    try:
-        r = subprocess.run(["ipconfig", "/all"], capture_output=True, timeout=15,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        return r.stdout.decode("utf-8", "replace").replace("\r\n", "\n").strip()
-    except Exception:
-        return ""
+    """Network configuration as text (`ipconfig /all` on Windows; '' if unavailable)."""
+    return plat.network_info()
 
 
 # ----------------------------------------------------------------------------------------------- report
@@ -611,10 +590,10 @@ class SupportApp:
     def show_file(self):
         if self.result:
             try:
-                subprocess.Popen(["explorer", f"/select,{self.result}"])
+                plat.reveal_file(self.result)
             except Exception:
                 try:
-                    os.startfile(str(self.result.parent))  # Windows only
+                    plat.open_path(self.result.parent)
                 except Exception:
                     pass
 
@@ -622,7 +601,7 @@ class SupportApp:
         p = self.session.dir / "Telestep_report.html" if self.session else None
         if p and p.exists():
             try:
-                os.startfile(str(p))  # Windows only
+                plat.open_path(p)
             except Exception:
                 import webbrowser
                 webbrowser.open(p.as_uri())

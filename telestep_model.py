@@ -19,6 +19,7 @@ import uuid
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
+import telestep_platform as plat
 from telestep_core import VERSION, clean_text, is_admin
 
 FORMAT_VERSION = 2
@@ -431,39 +432,8 @@ def collect_environment(monitors=None):
         "Recorder": f"Telestep {VERSION}",
         "Recorder running as administrator": "yes" if is_admin() else "no",
     }
-    try:
-        import winreg
-        k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
-
-        def q(name):
-            try:
-                return str(winreg.QueryValueEx(k, name)[0])
-            except OSError:
-                return ""
-
-        name, disp, build, ubr = q("ProductName"), q("DisplayVersion") or q("ReleaseId"), q("CurrentBuild"), q("UBR")
-        if build and int(build) >= 22000:
-            name = name.replace("Windows 10", "Windows 11")
-        env["Windows"] = f"{name} {disp} (build {build}.{ubr})".strip()
-    except Exception:
-        pass
-    try:
-        import ctypes
-
-        class MEM(ctypes.Structure):
-            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
-                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
-                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
-                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
-                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
-
-        m = MEM()
-        m.dwLength = ctypes.sizeof(MEM)
-        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
-            env["Memory"] = f"{m.ullTotalPhys / 2**30:.1f} GB"
-    except Exception:
-        pass
-    env["Processor"] = platform.processor() or platform.machine()
+    env.update(plat.os_details())  # Windows edition and build, memory (macOS: version, memory, processor)
+    env.setdefault("Processor", platform.processor() or platform.machine())
     env["CPU threads"] = str(os.cpu_count() or "?")
     if monitors and len(monitors) > 1:
         env["Displays"] = "; ".join(f"{i}: {m['width']}x{m['height']} at {m['left']},{m['top']}"

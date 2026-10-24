@@ -43,7 +43,7 @@ from telestep_model import (CONTAINER_KINDS, Session, Step, click_texts, collect
                        shortcut_texts, type_texts)
 from telestep_settings import DEFAULT_HOTKEYS
 
-DIALOG_CLASSES = {"#32770"}
+DIALOG_CLASSES = core.plat.DIALOG_CLASSES
 _MODKEYS = {"ctrl": "ctrl", "ctrl_l": "ctrl", "ctrl_r": "ctrl", "alt": "alt", "alt_l": "alt", "alt_r": "alt",
             "alt_gr": "altgr", "shift": "shift", "shift_l": "shift", "shift_r": "shift",
             "cmd": "win", "cmd_l": "win", "cmd_r": "win"}
@@ -528,7 +528,7 @@ class Recorder:
                         continue
                 if fg["cls"] in DIALOG_CLASSES and fg["title"]:
                     time.sleep(0.25)  # let the dialog finish painting
-                    rc = core._frame_rect(fg["hwnd"])
+                    rc = core.frame_rect(fg["hwnd"])
                     cx, cy = (rc[0] + rc[2]) // 2, (rc[1] + rc[3]) // 2
                     got = self._grab(cx, cy)
                     if got:
@@ -561,33 +561,29 @@ class Recorder:
 
     def _describe_inner(self, auto, x, y, pid=None):
         try:
-            c = auto.ControlFromPoint(x, y)
+            c = auto.element_at(x, y)
             if c is None:
                 return "", "", None, False, False
             try:  # the worker can run seconds behind the click: ignore an element from a different program
-                if pid and c.ProcessId and c.ProcessId != pid:
+                if pid and c.pid and c.pid != pid:
                     return "", "", None, False, False
             except Exception:
                 pass
-            name = (c.Name or "").strip().replace("\n", " ")[:80]
-            kind = (c.ControlTypeName or "").replace("Control", "")
-            r = c.BoundingRectangle
-            rect = (r.left, r.top, r.right, r.bottom)
-            try:
-                pw = bool(c.GetPropertyValue(auto.PropertyId.IsPasswordProperty))
-            except Exception:
-                pw = False
+            name = (c.name or "").strip().replace("\n", " ")[:80]
+            kind = c.kind
+            rect = c.rect
+            pw = c.is_password()
             inherited = False
             if not name:
                 p = c
                 for _ in range(4):
                     try:
-                        p = p.GetParentControl()
+                        p = p.parent()
                     except Exception:
                         p = None
                     if p is None:
                         break
-                    pn = (p.Name or "").strip().replace("\n", " ")[:80]
+                    pn = (p.name or "").strip().replace("\n", " ")[:80]
                     if pn:
                         name, inherited = pn, True
                         break
@@ -596,30 +592,10 @@ class Recorder:
             return "", "", None, False, False
 
     def _dialog_info(self, auto, hwnd):
-        """(texts, button_count, element_count) of a dialog window via UI Automation."""
-        texts, buttons, total = [], 0, 0
+        """(texts, button_count, element_count) of a dialog window."""
         if auto is None:
-            return texts, buttons, total
-        try:
-            root = auto.ControlFromHandle(hwnd)
-
-            def walk(ctrl, depth):
-                nonlocal buttons, total
-                if depth > 5 or total > 60:
-                    return
-                for ch in ctrl.GetChildren():
-                    total += 1
-                    t, nm = ch.ControlTypeName, (ch.Name or "").strip()
-                    if t == "TextControl" and nm and nm not in texts:
-                        texts.append(nm)
-                    elif t == "ButtonControl":
-                        buttons += 1
-                    walk(ch, depth + 1)
-
-            walk(root, 0)
-        except Exception:
-            pass
-        return texts, buttons, total
+            return [], 0, 0
+        return auto.dialog_info(hwnd)
 
     def _prepare(self, img):
         """Redact sensitive-looking text (optional) and downscale.  Returns (image, scale)."""
@@ -677,12 +653,7 @@ class Recorder:
         return [round((x - geom["left"]) * geom["scale"], 1), round((y - geom["top"]) * geom["scale"], 1)]
 
     def _work(self):
-        try:
-            import uiautomation as auto
-            ctx = auto.UIAutomationInitializerInThread()
-        except Exception:
-            auto, ctx = None, contextlib.nullcontext()
-        with ctx:
+        with core.plat.element_inspector() as auto:  # UI Automation on Windows; None where unavailable
             while True:
                 item = self.q.get()
                 if item is None:

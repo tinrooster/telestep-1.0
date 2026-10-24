@@ -1,5 +1,6 @@
-"""Voice narration for Telestep: no extra packages, only what Windows already has (the winmm waveIn recorder,
-winsound to play, the standard `wave` module to cut).
+"""Voice narration for Telestep.  The sound card is driven by telestep_platform.audio (on Windows the winmm waveIn
+recorder and winsound, nothing to install; on macOS / Linux the sounddevice package); cutting uses the standard `wave`
+module.
 
 Two uses:
   * Narrator running for a whole recording: you talk while you click, and when you stop the one long recording is
@@ -8,94 +9,30 @@ Two uses:
   * Narrator for a single clip: record / replace the voice note of one step in the review window, or test the
     microphone in Settings (live level meter).
 
-Everything that touches the sound card happens on one helper thread, because Windows sound handles do not like
-being driven from several threads (the earlier MCI version failed that way).
+Everything that touches the sound card happens on one helper thread (Narrator._run), because Windows sound handles do
+not like being driven from several threads (the earlier MCI version failed that way).
 """
 import array
 import datetime as dt
 import sys
 import threading
-import time
 import wave
 from pathlib import Path
+
+import telestep_platform as plat
 
 RATE = 11025  # speech only: 22 KB/s, about 1.3 MB per minute
 LAST_ERROR = ""  # why the last cut_clips failed
 MIN_SECONDS = 0.4  # shorter clips are dropped (a click and a cough)
 SILENCE_PEAK = 150  # of 32767: a clip that never gets louder than this is room noise, not speech
-WAVE_MAPPER = 0xFFFFFFFF  # "the Windows default recording device"
-DEFAULT_NAME = "Default (Windows sound setting)"
 preferred = ""  # microphone name chosen in Settings > Audio (the app keeps this up to date)
 
-try:
-    import ctypes
-    from ctypes import wintypes
-    _winmm = ctypes.WinDLL("winmm") if sys.platform == "win32" else None
-except Exception:  # not Windows
-    ctypes, wintypes, _winmm = None, None, None
-
-
-def available():
-    return _winmm is not None
-
-
-if _winmm is not None:
-    class WAVEFORMATEX(ctypes.Structure):
-        _fields_ = [("wFormatTag", wintypes.WORD), ("nChannels", wintypes.WORD), ("nSamplesPerSec", wintypes.DWORD),
-                    ("nAvgBytesPerSec", wintypes.DWORD), ("nBlockAlign", wintypes.WORD),
-                    ("wBitsPerSample", wintypes.WORD), ("cbSize", wintypes.WORD)]
-
-    class WAVEHDR(ctypes.Structure):
-        _fields_ = [("lpData", ctypes.c_void_p), ("dwBufferLength", wintypes.DWORD),
-                    ("dwBytesRecorded", wintypes.DWORD), ("dwUser", ctypes.c_size_t), ("dwFlags", wintypes.DWORD),
-                    ("dwLoops", wintypes.DWORD), ("lpNext", ctypes.c_void_p), ("reserved", ctypes.c_size_t)]
-
-    class WAVEINCAPSW(ctypes.Structure):
-        _fields_ = [("wMid", wintypes.WORD), ("wPid", wintypes.WORD), ("vDriverVersion", wintypes.UINT),
-                    ("szPname", ctypes.c_wchar * 32), ("dwFormats", wintypes.DWORD), ("wChannels", wintypes.WORD),
-                    ("wReserved1", wintypes.WORD)]
-
-    _H = ctypes.c_void_p
-    _winmm.waveInGetNumDevs.restype = wintypes.UINT
-    _winmm.waveInGetDevCapsW.argtypes = [ctypes.c_size_t, ctypes.POINTER(WAVEINCAPSW), wintypes.UINT]
-    _winmm.waveInOpen.argtypes = [ctypes.POINTER(_H), wintypes.UINT, ctypes.POINTER(WAVEFORMATEX),
-                                  ctypes.c_size_t, ctypes.c_size_t, wintypes.DWORD]
-    for _n in ("waveInPrepareHeader", "waveInUnprepareHeader", "waveInAddBuffer"):
-        getattr(_winmm, _n).argtypes = [_H, ctypes.POINTER(WAVEHDR), wintypes.UINT]
-    for _n in ("waveInStart", "waveInStop", "waveInReset", "waveInClose"):
-        getattr(_winmm, _n).argtypes = [_H]
-    _WHDR_DONE = 1
-
-
-def _err_text(code):
-    names = {2: "no such recording device", 4: "the device is in use by another program",
-             6: "no driver", 7: "out of memory", 32: "the device does not support this format",
-             64: "no microphone found"}
-    return names.get(code, f"Windows audio error {code}")
-
-
-def list_devices():
-    """[(index, name)] of the recording devices Windows reports (names are cut at 31 characters by Windows)."""
-    out = []
-    if not available():
-        return out
-    try:
-        for i in range(_winmm.waveInGetNumDevs()):
-            caps = WAVEINCAPSW()
-            if _winmm.waveInGetDevCapsW(i, ctypes.byref(caps), ctypes.sizeof(caps)) == 0:
-                out.append((i, caps.szPname))
-    except Exception:
-        pass
-    return out
-
-
-def device_id(name):
-    """Device number for a saved name ('' / the default label / a name that is gone -> the Windows default)."""
-    if name and name != DEFAULT_NAME:
-        for i, n in list_devices():
-            if n == name:
-                return i
-    return WAVE_MAPPER
+_mic = plat.audio
+DEFAULT_NAME = _mic.DEFAULT_NAME
+UNAVAILABLE = _mic.UNAVAILABLE  # why there is no microphone ('voice recording needs Windows')
+NEEDS = _mic.NEEDS  # the same, short
+available = _mic.available
+list_devices = _mic.list_devices  # [(id, name)] of the recording devices
 
 
 class Narrator:
@@ -127,7 +64,7 @@ class Narrator:
     # ---- the microphone (all sound-card calls happen in _run)
     def start(self):
         if not available():
-            return False, "voice recording needs Windows"
+            return False, UNAVAILABLE
         self._thread = threading.Thread(target=self._run, name="telestep-mic", daemon=True)
         self._thread.start()
         self._opened.wait(6)
@@ -139,62 +76,25 @@ class Narrator:
         return True, ""
 
     def _run(self):
-        hwi, hdrs, bufs = _H(), [], []
-        opened = False
         try:
-            dev = device_id(self.device)
-            code = None
-            for rate, ch in self.FORMATS:
-                fmt = WAVEFORMATEX(1, ch, rate, rate * 2 * ch, 2 * ch, 16, 0)
-                code = _winmm.waveInOpen(ctypes.byref(hwi), dev, ctypes.byref(fmt), 0, 0, 0)
-                if code == 0:
-                    self.format, opened = (rate, ch), True
-                    break
-            if not opened:
-                self._open_error = _err_text(code)
-                return
-            rate, ch = self.format
-            size = rate * 2 * ch // 10  # 100 ms per buffer
-            for _ in range(8):
-                buf = ctypes.create_string_buffer(size)
-                h = WAVEHDR(ctypes.cast(buf, ctypes.c_void_p), size, 0, 0, 0, 0, None, 0)
-                bufs.append(buf)
-                hdrs.append(h)
-                _winmm.waveInPrepareHeader(hwi, ctypes.byref(h), ctypes.sizeof(h))
-                _winmm.waveInAddBuffer(hwi, ctypes.byref(h), ctypes.sizeof(h))
-            code = _winmm.waveInStart(hwi)
-            if code:
-                self._open_error = _err_text(code)
-                return
-            self._opened.set()
-            while not self._stop.is_set():
-                got = False
-                for h, buf in zip(hdrs, bufs):
-                    if h.dwFlags & _WHDR_DONE:
-                        got = True
-                        chunk = buf.raw[:h.dwBytesRecorded]
-                        self.level = min(1.0, _peak(chunk, 2) / 12000.0)  # speech rarely peaks above ~12000
-                        if not self._muted:
-                            self._append(chunk)
-                        h.dwBytesRecorded = 0
-                        _winmm.waveInAddBuffer(hwi, ctypes.byref(h), ctypes.sizeof(h))
-                if not got:
-                    time.sleep(0.02)
+            err = _mic.record(self.device, self.FORMATS, self._on_open, self._on_chunk, self._stop)
+            if err:
+                self._open_error = err
         except Exception as e:
             self._open_error = self._open_error or f"{type(e).__name__}: {e}"
             self.error = self._open_error
         finally:
-            if opened:
-                try:
-                    _winmm.waveInStop(hwi)
-                    _winmm.waveInReset(hwi)
-                    for h in hdrs:
-                        _winmm.waveInUnprepareHeader(hwi, ctypes.byref(h), ctypes.sizeof(h))
-                    _winmm.waveInClose(hwi)
-                except Exception:
-                    pass
             self._opened.set()
             self.level = 0.0
+
+    def _on_open(self, rate, ch):
+        self.format = (rate, ch)
+        self._opened.set()
+
+    def _on_chunk(self, chunk):
+        self.level = min(1.0, _peak(chunk, 2) / 12000.0)  # speech rarely peaks above ~12000
+        if not self._muted:
+            self._append(chunk)
 
     def _append(self, chunk):
         """Keep a chunk of audio: appended to the raw file on disk (flushed), or held in memory."""
@@ -562,22 +462,13 @@ def duration(path):
 
 
 # --------------------------------------------------------------------------------------- playback
+def can_play():
+    return _mic.can_play()
+
+
 def play(path):
-    if sys.platform != "win32":
-        return False
-    try:
-        import winsound
-        winsound.PlaySound(str(path), winsound.SND_FILENAME | winsound.SND_ASYNC)
-        return True
-    except Exception:
-        return False
+    return _mic.play(path)
 
 
 def stop_playing():
-    if sys.platform != "win32":
-        return
-    try:
-        import winsound
-        winsound.PlaySound(None, winsound.SND_PURGE)
-    except Exception:
-        pass
+    _mic.stop_playing()
