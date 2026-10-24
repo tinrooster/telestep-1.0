@@ -137,9 +137,7 @@ def render_markdown(text_widget, md):
 
 
 def open_log_folder(log_path=None):
-    """Show telestep_debug.log in File Explorer (just the folder if no log has been written yet)."""
-    import os
-    import subprocess
+    """Show telestep_debug.log in the file manager (just the folder if no log has been written yet)."""
     from pathlib import Path
     if log_path is None:
         import telestep_settings as cfg
@@ -148,9 +146,9 @@ def open_log_folder(log_path=None):
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         if log_path.exists():
-            subprocess.Popen(["explorer", f"/select,{log_path}"])
+            core.plat.reveal_file(log_path)
         else:
-            os.startfile(str(log_path.parent))  # Windows only
+            core.plat.open_path(log_path.parent)
     except Exception:
         pass
 

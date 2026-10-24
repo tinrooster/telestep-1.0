@@ -528,7 +528,7 @@ class Recorder:
                         continue
                 if fg["cls"] in DIALOG_CLASSES and fg["title"]:
                     time.sleep(0.25)  # let the dialog finish painting
-                    rc = core._frame_rect(fg["hwnd"])
+                    rc = core.frame_rect(fg["hwnd"])
                     cx, cy = (rc[0] + rc[2]) // 2, (rc[1] + rc[3]) // 2
                     got = self._grab(cx, cy)
                     if got:

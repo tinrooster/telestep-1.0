@@ -9,7 +9,6 @@ telestep_review.py - review / edit a recorded session, then export it.
 Open it from the toolbar (list icon), automatically after Stop, or:  python telestep_recorder.py --review <folder>
 """
 import dataclasses
-import os
 import sys
 import time
 import tkinter as tk
@@ -1441,7 +1440,7 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
 
     def open_folder(self):
         try:
-            os.startfile(str(self.s.dir))  # Windows only
+            core.plat.open_path(self.s.dir)
         except Exception as e:
             messagebox.showerror("Telestep", f"Could not open folder:\n{e}", parent=self)
 

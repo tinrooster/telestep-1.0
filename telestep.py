@@ -565,7 +565,7 @@ class App:
 
     def _open_ms(self, uri):
         try:
-            os.startfile(uri)  # Windows only
+            core.plat.open_path(uri)
         except Exception:
             self.toast("Open Windows Settings > System > Sound (or Privacy > Microphone).", 6)
 
@@ -1787,7 +1787,7 @@ class App:
         target = self.out_dir if self.out_dir and self.out_dir.exists() else self.base
         target.mkdir(parents=True, exist_ok=True)
         try:
-            os.startfile(str(target))  # Windows only
+            core.plat.open_path(target)
         except Exception as e:
             self.ask("showerror", f"Could not open folder:\n{e}")
 
@@ -1834,8 +1834,7 @@ class App:
                     self.flash_until = time.monotonic() + 0.18
                 if self.var_sound.get():
                     try:
-                        import winsound
-                        threading.Thread(target=winsound.Beep, args=(1400, 25), daemon=True).start()
+                        core.plat.beep(1400, 25)
                     except Exception:
                         pass
             elif ev[0] == "note":

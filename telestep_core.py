@@ -3,55 +3,30 @@ telestep_core.py - shared low-level helpers for Telestep (no GUI, no recorder lo
 
   * DPI awareness (set on import, before any coordinates are read)
   * text/name cleaning, geometry
-  * Windows helpers via ctypes (window/process info, hotkeys, monitors).  Every one of them
-    degrades to "nothing" on other systems so the logic can be unit-tested anywhere.
+  * window/process/monitor helpers, hotkeys, single instance: re-exported from telestep_platform (one backend per
+    OS); every one of them degrades to "nothing" where unsupported so the logic can be unit-tested anywhere.
   * mask styles + window-following masks + optional OCR redaction
   * marker annotation (click circle, double-click, drag arrow, scroll arrow, step badge)
 """
-import ctypes
 import datetime as dt
 import math
 import re
-import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+import telestep_platform as plat
+from telestep_platform import (SKIP_TITLES, HotkeyListener, cursor_pos, double_click_time, foreground_info,  # noqa: F401
+                               frame_rect, is_admin, list_windows, own_process_active, parse_hotkey,
+                               single_instance, tell_already_running, window_info, window_rect, work_area_at)
+
 # Must happen before any coordinates are read, or clicks land offset on scaled displays.
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # per-monitor DPI aware
-except Exception:
-    try:
-        ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
-        pass
+plat.set_dpi_aware()
+# The helper programs we start (Tesseract, ipconfig) must not flash a console window on Windows.
+plat.quiet_subprocesses()
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageStat  # noqa: E402
 
 VERSION = "1.0"
-
-
-def _no_console_windows():
-    """Telestep is a window-only program, but the helper programs it starts (Tesseract for OCR, ipconfig in Support
-    mode) are console programs: each one can flash a black window, and OCR starts several per click.  Ask Windows not
-    to create a console for any child process we start."""
-    import subprocess
-    import sys
-    flag = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    if sys.platform != "win32" or not flag or getattr(subprocess.Popen, "_telestep_quiet", False):
-        return
-    real = subprocess.Popen
-
-    class QuietPopen(real):
-        _telestep_quiet = True
-
-        def __init__(self, *a, **kw):
-            kw["creationflags"] = kw.get("creationflags", 0) | flag
-            super().__init__(*a, **kw)
-
-    subprocess.Popen = QuietPopen
-
-
-_no_console_windows()
 
 
 # ---------------------------------------------------------------------------
@@ -104,164 +79,14 @@ def in_rects(x, y, rects):
 
 
 # ---------------------------------------------------------------------------
-# Windows helpers (private DLL handles so we never touch argtypes other libraries rely on)
+# OS helpers that only combine telestep_platform calls
 # ---------------------------------------------------------------------------
-_dlls = {}
-
-
-def _dll(name):
-    d = _dlls.get(name)
-    if d is None:
-        d = _dlls[name] = ctypes.WinDLL(name, use_last_error=True)  # AttributeError off Windows
-    return d
-
-
-def _sig(fn, restype, *argtypes):
-    fn.restype = restype
-    fn.argtypes = list(argtypes)
-    return fn
-
-
-def _info_of(hwnd):
-    from ctypes import wintypes
-    u = _dll("user32")
-    buf = ctypes.create_unicode_buffer(512)
-    _sig(u.GetWindowTextW, ctypes.c_int, wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)(hwnd, buf, 512)
-    title = buf.value
-    cbuf = ctypes.create_unicode_buffer(256)
-    _sig(u.GetClassNameW, ctypes.c_int, wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)(hwnd, cbuf, 256)
-    pid = wintypes.DWORD()
-    _sig(u.GetWindowThreadProcessId, wintypes.DWORD, wintypes.HWND, ctypes.POINTER(wintypes.DWORD))(
-        hwnd, ctypes.byref(pid))
-    return {"hwnd": hwnd or 0, "title": title, "cls": cbuf.value, "pid": pid.value}
-
-
-_EMPTY_INFO = {"hwnd": 0, "title": "", "cls": "", "pid": 0}
-SKIP_TITLES = set()  # our own click-through overlay windows: never report them as "the window under the cursor"
-
-
-def _hit(x, y):
-    """hwnd under the point.  If that is one of our own overlays, look through it (z-order walk)."""
-    from ctypes import wintypes
-    u = _dll("user32")
-    hwnd = _sig(u.WindowFromPoint, wintypes.HWND, wintypes.POINT)(wintypes.POINT(int(x), int(y)))
-    if SKIP_TITLES and hwnd:
-        root = _sig(u.GetAncestor, wintypes.HWND, wintypes.HWND, wintypes.UINT)(hwnd, 2) or hwnd
-        if _info_of(root)["title"] in SKIP_TITLES:
-            for win in list_windows():  # EnumWindows order = top of the z-order first
-                l, t, r, b = win["rect"]
-                if win["title"] not in SKIP_TITLES and l <= x < r and t <= y < b:
-                    return win["hwnd"]
-    return hwnd
-
-
-def window_info(x, y):
-    """{'hwnd','title','cls','pid'} of the top-level window under the point (Windows)."""
-    try:
-        from ctypes import wintypes
-        hwnd = _hit(x, y)
-        root = _sig(_dll("user32").GetAncestor, wintypes.HWND, wintypes.HWND, wintypes.UINT)(hwnd, 2) or hwnd
-        return _info_of(root)
-    except Exception:
-        return dict(_EMPTY_INFO)
-
-
 def window_at(x, y):
     return window_info(x, y)["title"]
 
 
-def foreground_info():
-    try:
-        from ctypes import wintypes
-        hwnd = _sig(_dll("user32").GetForegroundWindow, wintypes.HWND)()
-        return _info_of(hwnd) if hwnd else dict(_EMPTY_INFO)
-    except Exception:
-        return dict(_EMPTY_INFO)
-
-
-def own_process_active():
-    """True/False: is the foreground window one of this program's (toolbar, dialogs, drop-downs)?  None if unknown.
-    More reliable than Tk's focus, which reads 'none' right after a dialog or drop-down closes."""
-    try:
-        import os
-        from ctypes import wintypes
-        u = _dll("user32")
-        hwnd = _sig(u.GetForegroundWindow, wintypes.HWND)()
-        if not hwnd:
-            return False
-        pid = wintypes.DWORD()
-        _sig(u.GetWindowThreadProcessId, wintypes.DWORD, wintypes.HWND, ctypes.POINTER(wintypes.DWORD))(
-            hwnd, ctypes.byref(pid))
-        return pid.value == os.getpid()
-    except Exception:
-        return None
-
-
 def foreground_title():
     return foreground_info()["title"]
-
-
-def _frame_rect(hwnd):
-    from ctypes import wintypes
-    rc = wintypes.RECT()
-    ok = _dll("dwmapi").DwmGetWindowAttribute(wintypes.HWND(hwnd), 9, ctypes.byref(rc), ctypes.sizeof(rc)) == 0
-    if not ok:  # 9 = DWMWA_EXTENDED_FRAME_BOUNDS (skips the invisible resize shadow)
-        _dll("user32").GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(rc))
-    return rc.left, rc.top, rc.right, rc.bottom
-
-
-def window_rect(x, y):
-    """Box of the top-level window under the point, unioned with its owner (so popup menus
-    still show the app window they belong to)."""
-    try:
-        from ctypes import wintypes
-        u = _dll("user32")
-        hwnd0 = _hit(x, y)
-        ga = _sig(u.GetAncestor, wintypes.HWND, wintypes.HWND, wintypes.UINT)
-        rects = [_frame_rect(ga(hwnd0, flag)) for flag in (2, 3)]  # GA_ROOT, GA_ROOTOWNER
-        l = min(r[0] for r in rects)
-        t = min(r[1] for r in rects)
-        r_ = max(r[2] for r in rects)
-        b = max(r[3] for r in rects)
-        return _box(l, t, r_, b) if r_ > l and b > t else None
-    except Exception:
-        return None
-
-
-def list_windows():
-    """Visible, non-minimised, titled top-level windows: [{'hwnd','title','cls','pid','rect'}]."""
-    out = []
-    try:
-        from ctypes import wintypes
-        u = _dll("user32")
-        visible = _sig(u.IsWindowVisible, wintypes.BOOL, wintypes.HWND)
-        iconic = _sig(u.IsIconic, wintypes.BOOL, wintypes.HWND)
-        proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-
-        def cb(hwnd, _lp):
-            try:
-                if not visible(hwnd) or iconic(hwnd):
-                    return True
-                info = _info_of(hwnd)
-                if not info["title"]:
-                    return True
-                cloaked = wintypes.DWORD()
-                _dll("dwmapi").DwmGetWindowAttribute(wintypes.HWND(hwnd), 14, ctypes.byref(cloaked), 4)
-                if cloaked.value:  # hidden UWP / other-desktop windows
-                    return True
-                l, t, r, b = _frame_rect(hwnd)
-                if r - l < 2 or b - t < 2:
-                    return True
-                info["rect"] = (l, t, r, b)
-                out.append(info)
-            except Exception:
-                pass
-            return True
-
-        _sig(u.EnumWindows, wintypes.BOOL, proc, wintypes.LPARAM)(proc(cb), 0)
-    except Exception:
-        pass
-    return out
 
 
 def find_windows(substr):
@@ -270,30 +95,6 @@ def find_windows(substr):
     if not s:
         return []
     return [w["rect"] for w in list_windows() if s in w["title"].casefold()]
-
-
-def work_area_at(x, y):
-    """((work L,T,R,B), (monitor L,T,R,B)) for the monitor containing the point, or None.
-    The work area is the monitor minus the taskbar (and other docked app bars)."""
-    try:
-        from ctypes import wintypes
-
-        class MONITORINFO(ctypes.Structure):
-            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
-                        ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
-
-        u = _dll("user32")
-        hmon = _sig(u.MonitorFromPoint, wintypes.HANDLE, wintypes.POINT, wintypes.DWORD)(
-            wintypes.POINT(int(x), int(y)), 2)  # MONITOR_DEFAULTTONEAREST
-        mi = MONITORINFO()
-        mi.cbSize = ctypes.sizeof(MONITORINFO)
-        if not _sig(u.GetMonitorInfoW, wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(MONITORINFO))(
-                hmon, ctypes.byref(mi)):
-            return None
-        w, m = mi.rcWork, mi.rcMonitor
-        return (w.left, w.top, w.right, w.bottom), (m.left, m.top, m.right, m.bottom)
-    except Exception:
-        return None
 
 
 def taskbar_strips(monitors):
@@ -315,106 +116,6 @@ def taskbar_strips(monitors):
     return strips
 
 
-def cursor_pos():
-    try:
-        from ctypes import wintypes
-        pt = wintypes.POINT()
-        _dll("user32").GetCursorPos(ctypes.byref(pt))
-        return pt.x, pt.y
-    except Exception:
-        return None
-
-
-def double_click_time():
-    try:
-        return _dll("user32").GetDoubleClickTime() / 1000.0
-    except Exception:
-        return 0.5
-
-
-def is_admin():
-    try:
-        return bool(_dll("shell32").IsUserAnAdmin())
-    except Exception:
-        return False
-
-
-def process_path(pid):
-    try:
-        from ctypes import wintypes
-        k = _dll("kernel32")
-        h = _sig(k.OpenProcess, wintypes.HANDLE, wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)(0x1000, False, pid)
-        if not h:
-            return ""
-        try:
-            buf = ctypes.create_unicode_buffer(1024)
-            size = wintypes.DWORD(1024)
-            ok = _sig(k.QueryFullProcessImageNameW, wintypes.BOOL, wintypes.HANDLE, wintypes.DWORD,
-                      wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))(h, 0, buf, ctypes.byref(size))
-            return buf.value if ok else ""
-        finally:
-            _sig(k.CloseHandle, wintypes.BOOL, wintypes.HANDLE)(h)
-    except Exception:
-        return ""
-
-
-def process_elevated(pid):
-    """True / False, or None if unknown.  Access-denied on the token means "more privileged than us"."""
-    try:
-        from ctypes import wintypes
-        k, a = _dll("kernel32"), _dll("advapi32")
-        close = _sig(k.CloseHandle, wintypes.BOOL, wintypes.HANDLE)
-        h = _sig(k.OpenProcess, wintypes.HANDLE, wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)(0x1000, False, pid)
-        if not h:
-            return True if ctypes.get_last_error() == 5 else None
-        try:
-            tok = wintypes.HANDLE()
-            if not _sig(a.OpenProcessToken, wintypes.BOOL, wintypes.HANDLE, wintypes.DWORD,
-                        ctypes.POINTER(wintypes.HANDLE))(h, 0x8, ctypes.byref(tok)):
-                return True if ctypes.get_last_error() == 5 else None
-            try:
-                elev, ret = wintypes.DWORD(), wintypes.DWORD()
-                ok = _sig(a.GetTokenInformation, wintypes.BOOL, wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
-                          wintypes.DWORD, ctypes.POINTER(wintypes.DWORD))(
-                    tok, 20, ctypes.byref(elev), ctypes.sizeof(elev), ctypes.byref(ret))  # TokenElevation
-                return bool(elev.value) if ok else None
-            finally:
-                close(tok)
-        finally:
-            close(h)
-    except Exception:
-        return None
-
-
-def file_version_info(path):
-    """{'ProductName','FileDescription','ProductVersion','FileVersion'} from an exe's version resource."""
-    try:
-        import struct
-        from ctypes import wintypes
-        v = _dll("version")
-        size = _sig(v.GetFileVersionInfoSizeW, wintypes.DWORD, wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD))(
-            path, None)
-        if not size:
-            return {}
-        buf = ctypes.create_string_buffer(size)
-        if not _sig(v.GetFileVersionInfoW, wintypes.BOOL, wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
-                    ctypes.c_void_p)(path, 0, size, buf):
-            return {}
-        query = _sig(v.VerQueryValueW, wintypes.BOOL, ctypes.c_void_p, wintypes.LPCWSTR,
-                     ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.UINT))
-        lp, ln = ctypes.c_void_p(), wintypes.UINT()
-        if not query(buf, "\\VarFileInfo\\Translation", ctypes.byref(lp), ctypes.byref(ln)) or ln.value < 4:
-            return {}
-        lang, cp = struct.unpack("<HH", ctypes.string_at(lp.value, 4))
-        out = {}
-        for key in ("ProductName", "FileDescription", "ProductVersion", "FileVersion"):
-            if query(buf, f"\\StringFileInfo\\{lang:04x}{cp:04x}\\{key}", ctypes.byref(lp), ctypes.byref(ln)) and ln.value:
-                out[key] = ctypes.wstring_at(lp.value, ln.value).rstrip("\x00").strip()
-        return out
-    except Exception:
-        return {}
-
-
 _app_cache = {}
 
 
@@ -424,15 +125,7 @@ def app_info(pid):
         return {"app": "", "name": "", "version": "", "elevated": None}
     if pid in _app_cache:
         return _app_cache[pid]
-    path = process_path(pid)
-    ver = file_version_info(path) if path else {}
-    info = {
-        "app": Path(path).name if path else "",
-        "name": ver.get("ProductName") or ver.get("FileDescription") or "",
-        "version": ver.get("ProductVersion") or ver.get("FileVersion") or "",
-        "elevated": process_elevated(pid),
-    }
-    _app_cache[pid] = info
+    info = _app_cache[pid] = plat.app_details(pid)
     return info
 
 
@@ -466,100 +159,6 @@ def capture_box(opts, mons, x, y):
             if cropped and _contains(cropped, x, y):
                 box = cropped
     return box
-
-
-# ---------------------------------------------------------------------------
-# global hotkeys without a keyboard hook (RegisterHotKey on its own message-loop thread)
-# ---------------------------------------------------------------------------
-_MODS = {"alt": 0x1, "ctrl": 0x2, "control": 0x2, "shift": 0x4, "win": 0x8}
-_VK_NAMED = {"esc": 0x1B, "space": 0x20, "enter": 0x0D, "tab": 0x09, "delete": 0x2E, "insert": 0x2D,
-             "home": 0x24, "end": 0x23, "pageup": 0x21, "pagedown": 0x22, "pause": 0x13, "printscreen": 0x2C}
-
-
-def parse_hotkey(spec):
-    """'ctrl+shift+f8' -> (mod_flags, vk).  Raises ValueError for anything it can't map."""
-    parts = [p.strip().lower() for p in spec.split("+") if p.strip()]
-    if not parts:
-        raise ValueError("empty hotkey")
-    mods, key = 0, parts[-1]
-    for p in parts[:-1]:
-        if p not in _MODS:
-            raise ValueError(f"unknown modifier {p!r}")
-        mods |= _MODS[p]
-    m = re.fullmatch(r"f(\d{1,2})", key)
-    if m and 1 <= int(m.group(1)) <= 24:
-        return mods, 0x70 + int(m.group(1)) - 1
-    if len(key) == 1 and key.isalnum():
-        return mods, ord(key.upper())
-    if key in _VK_NAMED:
-        return mods, _VK_NAMED[key]
-    raise ValueError(f"unknown key {key!r}")
-
-
-class HotkeyListener:
-    """Registers system-wide hotkeys with RegisterHotKey.  `bindings` = {'ctrl+shift+f8': callable}.
-    `failed` lists specs that could not be registered (already taken, or not on Windows)."""
-
-    def __init__(self, bindings):
-        self.bindings = dict(bindings)
-        self.failed = list(self.bindings)
-        self.registered = []
-        self._ids = {}
-        self._tid = 0
-        self._ready = threading.Event()
-        self._thread = None
-
-    def start(self):
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-        self._ready.wait(2.0)
-        return not self.failed
-
-    def _run(self):
-        try:
-            from ctypes import wintypes
-            u, k = _dll("user32"), _dll("kernel32")
-            self._tid = k.GetCurrentThreadId()
-            failed = []
-            reg = _sig(u.RegisterHotKey, wintypes.BOOL, wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT)
-            for i, (spec, fn) in enumerate(self.bindings.items(), 1):
-                try:
-                    mods, vk = parse_hotkey(spec)
-                    if reg(None, i, mods | 0x4000, vk):  # MOD_NOREPEAT
-                        self._ids[i] = fn
-                        self.registered.append(spec)
-                        continue
-                except ValueError:
-                    pass
-                failed.append(spec)
-            self.failed = failed
-            self._ready.set()
-            if not self._ids:
-                return
-            msg = wintypes.MSG()
-            get = _sig(u.GetMessageW, ctypes.c_int, ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT,
-                       wintypes.UINT)
-            while get(ctypes.byref(msg), None, 0, 0) > 0:
-                if msg.message == 0x0312:  # WM_HOTKEY
-                    fn = self._ids.get(msg.wParam)
-                    if fn:
-                        try:
-                            fn()
-                        except Exception:
-                            pass
-            for i in self._ids:
-                u.UnregisterHotKey(None, i)
-        except Exception:
-            pass
-        finally:
-            self._ready.set()
-
-    def stop(self):
-        try:
-            if self._tid:
-                _dll("user32").PostThreadMessageW(self._tid, 0x0012, 0, 0)  # WM_QUIT
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1215,47 +814,6 @@ def draw_marks(img, marks):
         except (TypeError, ValueError, AttributeError):
             continue
     return img
-
-
-# ---------------------------------------------------------------------------
-# single instance
-# ---------------------------------------------------------------------------
-_instance_handle = None  # kept for the life of the process: the mutex goes away when we exit
-
-
-def single_instance(name):
-    """True if this is the only running copy (it now owns the named mutex), False if another copy already runs.
-    Always True off Windows or if the check itself fails: never block someone from starting the program."""
-    global _instance_handle
-    try:
-        from ctypes import wintypes
-        k = ctypes.WinDLL("kernel32", use_last_error=True)
-        k.CreateMutexW.restype = wintypes.HANDLE
-        k.CreateMutexW.argtypes = (wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR)
-        h = k.CreateMutexW(None, False, f"Local\\{name}")
-        if not h:
-            return True
-        _instance_handle = h
-        return ctypes.get_last_error() != 183  # ERROR_ALREADY_EXISTS
-    except Exception:
-        return True
-
-
-def tell_already_running(title, window_title=None):
-    """Bring the running copy's window forward if it can be found, and say so in a plain message box."""
-    try:
-        from ctypes import wintypes
-        u = ctypes.WinDLL("user32", use_last_error=True)
-        u.FindWindowW.restype = wintypes.HWND
-        u.FindWindowW.argtypes = (wintypes.LPCWSTR, wintypes.LPCWSTR)
-        hwnd = u.FindWindowW(None, window_title or title)
-        if hwnd:
-            u.ShowWindow(wintypes.HWND(hwnd), 9)  # SW_RESTORE
-            u.SetForegroundWindow(wintypes.HWND(hwnd))
-        u.MessageBoxW(None, f"{title} is already running.\n\nLook for its toolbar on screen (or its tray icon). "
-                      "Close that copy first if you want to start a new one.", title, 0x40 | 0x40000)  # info + topmost
-    except Exception:
-        pass
 
 
 def simplify_path(points, eps=3.0, limit=80):
