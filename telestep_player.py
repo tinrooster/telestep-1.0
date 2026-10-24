@@ -36,6 +36,11 @@ aside div{padding:8px 12px;border-bottom:1px solid #262d34;cursor:pointer;font-s
 aside div:hover{background:#252c33}aside div.on{background:#2a3744;border-left:3px solid var(--acc)}aside b{color:var(--acc);min-width:22px}
 #start{position:fixed;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;z-index:5}
 #start button{font-size:22px;padding:16px 34px}
+#cur{position:absolute;pointer-events:none;width:26px;height:26px;z-index:3;filter:drop-shadow(0 1px 3px #000b);display:none}
+#rip{position:absolute;pointer-events:none;border:4px solid #ff3b30;border-radius:50%;width:34px;height:34px;transform:translate(-50%,-50%) scale(.3);opacity:0;z-index:2}
+#rip.go{animation:rip .7s ease-out}
+@keyframes rip{0%{opacity:1;transform:translate(-50%,-50%) scale(.3)}100%{opacity:0;transform:translate(-50%,-50%) scale(2.6)}}
+button.on{outline:2px solid var(--acc)}
 @media(max-width:800px){aside{display:none}.cap{font-size:17px}}
 </style></head><body>
 <header>__LOGO__<h1>__TITLE__</h1><span class="by">__BY__</span></header>
@@ -43,6 +48,7 @@ aside div:hover{background:#252c33}aside div.on{background:#2a3744;border-left:3
 <div class="bar" id="bar"></div>
 <div class="ctl"><button id="prev" title="Previous (Left arrow)">&#9198;</button><button id="play" class="big" title="Play / pause (Space)">&#9654; Play</button>
 <button id="next" title="Next (Right arrow)">&#9197;</button>
+<button id="curb" class="on" title="Show / hide the mouse pointer" style="display:none">&#128433; Pointer</button>
 <select id="rate" title="Speed"><option value="1">1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select>
 <span class="n" id="count"></span></div></div><aside id="list"></aside></main>
 <div id="start"><div style="font-size:20px">__TITLE__</div><button id="go">&#9654; Play walkthrough</button><div style="color:#9aa5b1">__HINT__</div></div>
@@ -50,35 +56,65 @@ aside div:hover{background:#252c33}aside div.on{background:#2a3744;border-left:3
 <script>
 const S=JSON.parse(document.getElementById('data').textContent);
 const $=id=>document.getElementById(id);
-let i=0,playing=false,timer=null,timer2=null,rate=1,t0=0,dur=0,raf=0;const au=new Audio();
+let i=0,playing=false,timer=null,timer2=null,rate=1,tc=0,Tc=3000,last=0,raf=0,curOn=true,fired=false;const au=new Audio();
 const bar=$('bar'),list=$('list');
 S.forEach((s,k)=>{const g=document.createElement('div');g.className='seg';g.innerHTML='<i></i>';g.onclick=()=>show(k);bar.appendChild(g);
  const d=document.createElement('div');d.innerHTML='<b></b><span></span>';d.children[0].textContent=s.n||'';d.children[1].textContent=(s.audio?'\u{1F50A} ':'')+s.text;d.onclick=()=>show(k);list.appendChild(d)});
-function pic(src){const st=$('stage');st.innerHTML='';const im=document.createElement('img');im.src=src;st.appendChild(im);return st}
-function show(k,keep){i=Math.max(0,Math.min(S.length-1,k));const s=S[i];clearTimeout(timer);clearTimeout(timer2);cancelAnimationFrame(raf);au.pause();au.onended=null;
- const st=$('stage');
+if(S.some(s=>s.path&&s.path.length>1))$('curb').style.display='';
+function pic(src){const st=$('stage');st.innerHTML='';const im=document.createElement('img');im.src=src;st.appendChild(im);
+ st.insertAdjacentHTML('beforeend','<svg id="cur" viewBox="0 0 24 24"><path d="M3 2 L3 19 L8 14.5 L11.5 22 L14.5 20.7 L11 13.3 L17.5 13 Z" fill="#fff" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/></svg><div id="rip"></div>');
+ im.onload=()=>drawCursor();return st}
+function words(s){return s.text.split(/\s+/).length+(s.comment?s.comment.split(/\s+/).length:0)}
+function pathLen(s){return s.path&&s.path.length>1?s.path[s.path.length-1][0]:0}
+function total(s){return s.audio?(s.dur||3)*1000:Math.max(2500,words(s)*450,pathLen(s)+1500)}
+function geom(){const im=$('stage').querySelector('img');if(!im)return null;const a=im.getBoundingClientRect(),b=$('stage').getBoundingClientRect();return{l:a.left-b.left,t:a.top-b.top,w:a.width,h:a.height}}
+function drawCursor(){const s=S[i],c=$('cur'),r=$('rip');if(!c)return;
+ if(!curOn||!s.path||s.path.length<2||!s.imgs.length){c.style.display='none';return}
+ const g=geom();if(!g||!g.w)return;const P=pathLen(s),M=Math.max(300,Math.min(P,Tc*.55)),st=Math.max(0,Tc*.55-M);
+ let u=tc<=st?0:tc>=st+M?P:(tc-st)/M*P;const p=s.path;let k=0;while(k<p.length-2&&p[k+1][0]<u)k++;
+ const a=p[k],b=p[k+1],f=b[0]>a[0]?Math.min(1,Math.max(0,(u-a[0])/(b[0]-a[0]))):1,fx=a[1]+(b[1]-a[1])*f,fy=a[2]+(b[2]-a[2])*f;
+ c.style.display='block';c.style.left=(g.l+fx*g.w-3)+'px';c.style.top=(g.t+fy*g.h-2)+'px';
+ if(tc>=st+M&&!fired&&playing){fired=true;const e=p[p.length-1];r.style.left=(g.l+e[1]*g.w)+'px';r.style.top=(g.t+e[2]*g.h)+'px';r.classList.remove('go');void r.offsetWidth;r.classList.add('go')}}
+function show(k){i=Math.max(0,Math.min(S.length-1,k));const s=S[i];clearTimeout(timer);clearTimeout(timer2);cancelAnimationFrame(raf);au.pause();au.onended=null;
+ tc=0;fired=false;Tc=total(s);const st=$('stage');
  if(s.imgs.length){pic(s.imgs[0]);if(s.n){const b=document.createElement('div');b.className='badge';b.textContent='Step '+s.n;st.appendChild(b)}}
  else{st.innerHTML='<div class="card"><small>'+(s.kind==='section'?'Section':s.label||'Note')+'</small></div>';st.firstChild.append(document.createTextNode(s.text))}
  $('cap').textContent=s.imgs.length?s.text:'';$('com').textContent=s.comment||'';
  [...bar.children].forEach((g,j)=>{g.className='seg'+(j<i?' done':'');g.firstChild.style.width=j<i?'100%':'0'});
  [...list.children].forEach((d,j)=>d.className=j===i?'on':'');list.children[i].scrollIntoView({block:'nearest'});
  $('count').textContent=(i+1)+' / '+S.length;if(playing)run()}
-function words(s){return s.text.split(/\s+/).length+(s.comment?s.comment.split(/\s+/).length:0)}
-function run(){const s=S[i];t0=performance.now();
- if(s.audio){au.src=s.audio;au.playbackRate=rate;au.onended=next;dur=(s.dur||3)*1000/rate;au.play().catch(()=>{pause()})}
- else{dur=Math.max(2500,words(s)*450)/rate;timer=setTimeout(next,dur)}
- if(s.imgs.length>1)timer2=setTimeout(()=>{const im=$('stage').querySelector('img');if(im)im.src=s.imgs[1]},dur/2);
+function run(){const s=S[i];tc=0;fired=false;last=performance.now();Tc=total(s);
+ if(s.audio){au.src=s.audio;au.playbackRate=rate;au.onended=next;au.play().catch(()=>{pause()})}
+ else timer=setTimeout(next,Tc/rate);
+ if(s.imgs.length>1)timer2=setTimeout(()=>{const im=$('stage').querySelector('img');if(im)im.src=s.imgs[1]},Tc/rate/2);
  tick()}
-function tick(){const g=bar.children[i];g.firstChild.style.width=Math.min(100,(performance.now()-t0)/dur*100)+'%';raf=requestAnimationFrame(tick)}
+function tick(){const now=performance.now();
+ if(S[i].audio&&!au.paused&&au.currentTime>0)tc=au.currentTime*1000;else tc+=(now-last)*rate;last=now;
+ drawCursor();const g=bar.children[i];g.firstChild.style.width=Math.min(100,tc/Tc*100)+'%';raf=requestAnimationFrame(tick)}
 function next(){if(i<S.length-1)show(i+1);else{pause();[...bar.children].forEach(g=>{g.className='seg done'})}}
 function play(){playing=true;$('play').innerHTML='&#10074;&#10074; Pause';if(i>=S.length-1&&!S.length)return;run()}
 function pause(){playing=false;$('play').innerHTML='&#9654; Play';clearTimeout(timer);clearTimeout(timer2);cancelAnimationFrame(raf);au.pause()}
 $('play').onclick=()=>playing?pause():play();$('prev').onclick=()=>show(i-1);$('next').onclick=()=>show(i+1);
 $('rate').onchange=e=>{rate=parseFloat(e.target.value);au.playbackRate=rate;if(playing)show(i)};
+$('curb').onclick=()=>{curOn=!curOn;$('curb').classList.toggle('on',curOn);drawCursor()};addEventListener('resize',()=>drawCursor());
 $('go').onclick=()=>{$('start').style.display='none';play()};
 addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();$('play').click()}else if(e.key==='ArrowRight')show(i+1);else if(e.key==='ArrowLeft')show(i-1);else if(e.key==='Home')show(0)});
 show(0);
 </script></body></html>"""
+
+
+def _norm_path(session, block):
+    """The step's mouse path as fractions of the picture, so the page can draw it at any size."""
+    pts = block.get("path") or []
+    if len(pts) < 2 or not block["images"]:
+        return []
+    try:
+        from PIL import Image
+        with Image.open(session.dir / block["images"][0][1]) as im:
+            w, h = im.size
+    except Exception:
+        return []
+    return [[int(t), round(x / w, 4), round(y / h, 4)] for t, x, y in pts if w and h]
 
 
 def _items(session, tpl):
@@ -89,12 +125,13 @@ def _items(session, tpl):
             out.append({"kind": "step", "n": b["n"], "text": b["text"], "comment": b["comment"],
                         "imgs": [rep._data_uri(session.dir / rel) for _l, rel in b["images"]],
                         "audio": rep._data_uri(session.dir / a) if a else "",
+                        "path": _norm_path(session, b),
                         "dur": round(audio.duration(session.dir / a), 2) if a else 0})
         elif b["type"] == "section":
-            out.append({"kind": "section", "n": "", "text": b["text"], "comment": "", "imgs": [], "audio": "", "dur": 0})
+            out.append({"kind": "section", "n": "", "text": b["text"], "comment": "", "imgs": [], "audio": "", "dur": 0, "path": []})
         elif b["type"] == "callout":
             out.append({"kind": "note", "label": rep.CALLOUT[b["level"]][0], "n": "", "text": b["text"].strip(),
-                        "comment": "", "imgs": [], "audio": "", "dur": 0})
+                        "comment": "", "imgs": [], "audio": "", "dur": 0, "path": []})
     return out
 
 

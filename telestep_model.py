@@ -51,6 +51,7 @@ class Step:
     comment: str = ""  # extra line shown under the caption (typed at record time or in the review editor)
     audio: str = ""  # voice note (WAV) relative to the session folder, e.g. audio/<id>.wav
     apos: float = -1.0  # where in the narration recording this step happened (seconds); -1 = not narrated
+    path: list = None  # mouse path to this click: [[ms, x, y], ...] in picture pixels (narrated player only)
     marks: list = None  # hand-made annotations drawn on the picture: [{"t": box|arrow|text|num, "p": [...], ...}]
 
     def caption(self, wording="friendly"):

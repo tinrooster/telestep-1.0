@@ -184,7 +184,8 @@ def build_blocks(session, tpl):
                 out.append({"type": "step", "n": nums.get(s.id, 0), "text": cap, "meta": " | ".join(meta),
                             "images": imgs, "dialog": "" if tpl.docs else clean_text(s.dialog_text),
                             "comment": clean_text(getattr(s, "comment", "") or ""),
-                            "audio": s.audio if getattr(s, "audio", "") and (session.dir / s.audio).exists() else ""})
+                            "audio": s.audio if getattr(s, "audio", "") and (session.dir / s.audio).exists() else "",
+                            "path": getattr(s, "path", None) or []})
     return out
 
 

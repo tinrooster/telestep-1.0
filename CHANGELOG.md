@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Optional mouse movement (Settings > Capture > Also record): the pointer path to each click is recorded (positions only, thinned) and the narrated player replays it as a gliding pointer with a click ripple, timed with the voice note; Pointer button to hide it. `--mouse-path` on the command line.
 - New export format "Narrated player (HTML)": the Play all walkthrough as one self-contained, offline file (screenshots shown while each voice note plays, auto-advance, controls, progress bar, step list, speed).
 - Review: Play now also works on several selected steps (their clips play one after another in list order, showing each step; the selection is restored afterwards). The open-mic icon pulse is much stronger (the disc swells and flashes with a rippling halo).
 - Collapsed toolbar while recording: the app logo stays, a red record dot (click to pause) and the microphone indicator sit beside it, and hovering only adds Pause / Stop / Settings (the greyed-out Record button is gone while recording). An open microphone is a bigger red icon that ripples, so it can't be mistaken for "off".

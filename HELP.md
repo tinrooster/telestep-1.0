@@ -204,6 +204,12 @@ Formats: Markdown (with a pictures folder), Word, HTML (one self-contained file)
   works offline and can be emailed or run from a USB stick. Warnings and tips appear as cards; steps without a voice note
   stay up for a few seconds (longer for longer captions), so it also works as a silent slideshow. Expect roughly 1.3 MB per
   minute of narration plus the pictures.
+  To see the mouse too, tick *Settings > Capture > Also record > Mouse movement*. Telestep then notes where the pointer
+  travels between clicks (positions only, thinned to a few dozen points per step), and the player glides a pointer along that
+  path over the screenshot, timed with the voice note, ending in a click ripple. A **Pointer** button in the player hides it.
+  The screenshot is still taken at the click, so the pointer moves over the finished picture (a menu that opened on the way
+  is not shown until the click); parts of a path outside the captured screen are left out, and only clicks get a path (not
+  drags or scrolls). Other formats ignore the path.
 - **ZIP bundle** (`steps_bundle.zip`): `steps.md` plus only the pictures it uses, ready to attach to a wiki page or ticket.
 
 **Check for private information before exporting** (on by default, switch it off under the format boxes): Telestep searches

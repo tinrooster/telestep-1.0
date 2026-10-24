@@ -25,6 +25,7 @@ Install:  pip install pynput mss pillow uiautomation python-docx reportlab
 Note:     Run as administrator to capture clicks inside admin (elevated) windows.
 """
 import argparse
+import collections
 import contextlib
 import datetime as dt
 import queue
@@ -86,6 +87,7 @@ class RecordOpts:
     ocr_labels: bool = True  # label clicks on unnamed controls with nearby text (needs Tesseract; silently skipped if absent)
     hotkeys: dict = field(default_factory=lambda: dict(DEFAULT_HOTKEYS))
     narrate: bool = False  # start with the microphone on (the toolbar mic button switches it either way)
+    mouse_path: bool = False  # also record where the pointer travels between clicks (the narrated player replays it)
     audio_assign: str = "next"  # speech between two clicks goes with the "next" or the "prev"ious click
 
 
@@ -191,6 +193,46 @@ class Recorder:
             return True
         return in_rects(x, y, self.ignore_rects)
 
+    _trail = None  # deque of (monotonic, x, y) pointer samples since the last step
+    TRAIL_MAX_S = 6.0  # a path only covers the last few seconds before the click
+
+    def on_move(self, x, y):
+        if self.paused or not self.o.mouse_path:
+            return
+        t = time.monotonic()
+        if self._trail is None:
+            self._trail = collections.deque(maxlen=600)
+        if self._trail and t - self._trail[-1][0] < 0.05:  # about 20 samples a second is plenty
+            return
+        self._trail.append((t, x, y))
+
+    def _take_trail(self, now, x, y):
+        """The pointer samples leading up to this click (then the buffer starts afresh)."""
+        tr, self._trail = self._trail, None
+        if not self.o.mouse_path or not tr:
+            return None
+        pts = [p for p in tr if now - p[0] <= self.TRAIL_MAX_S]
+        pts.append((now, x, y))
+        return pts
+
+    def _path_for(self, geom, trail, size):
+        """Trail -> [[ms, x, y]] in picture pixels, thinned; None when the pointer hardly moved."""
+        if not trail or len(trail) < 2:
+            return None
+        t0 = trail[0][0]
+        pts = []
+        for t, x, y in trail:
+            ix, iy = self._map(geom, x, y)
+            if -20 <= ix <= size[0] + 20 and -20 <= iy <= size[1] + 20:
+                pts.append((int((t - t0) * 1000), ix, iy))
+        if len(pts) < 2:
+            return None
+        if sum(abs(b[1] - a[1]) + abs(b[2] - a[2]) for a, b in zip(pts, pts[1:])) < 12:
+            return None
+        pts = core.simplify_path(pts)
+        base = pts[0][0]
+        return [[p[0] - base, round(p[1]), round(p[2])] for p in pts]
+
     def on_click(self, x, y, button, pressed):
         if self.paused or self.stop_evt.is_set():
             return
@@ -208,6 +250,7 @@ class Recorder:
             info["wrect"] = None
         if self._ignored(x, y, info["title"]):
             self._press = None
+            self._trail = None
             return
         self._last_pos = (x, y)
         self._flush_scroll(force=True)
@@ -217,6 +260,7 @@ class Recorder:
                 and abs(x - lc[1]) <= 4 and abs(y - lc[2]) <= 4):
             self._last_click = None
             self._press = (x, y, now, name, True)
+            self._trail = None
             self.q.put(("dbl", dt.datetime.now(), x, y))
             return
         got = self._grab(x, y)
@@ -231,7 +275,8 @@ class Recorder:
         if self.o.after_mode in ("replace", "pair"):
             holder = _Holder()
             threading.Thread(target=self._grab_after, args=(holder, box), daemon=True).start()
-        self.q.put(("click", dt.datetime.now(), x, y, name, img, box, info, holder))
+        trail = self._take_trail(now, x, y)
+        self.q.put(("click", dt.datetime.now(), x, y, name, img, box, info, holder, trail))
         self.events.put(("captured",))
 
     def _on_release(self, x, y, name):
@@ -691,7 +736,7 @@ class Recorder:
             d = self.__dict__.setdefault("_stages", {})
             d[name] = d.get(name, 0.0) + time.monotonic() - t0
 
-    def _do_click(self, auto, when, x, y, btn, img, box, info, holder):
+    def _do_click(self, auto, when, x, y, btn, img, box, info, holder, trail=None):
         with self._stage("lookup"):
             name, ckind, rect, pw, inherited = self._describe(auto, x, y, info.get("pid"))
         self._last_pw = pw
@@ -710,6 +755,8 @@ class Recorder:
         if rect and rect[2] > rect[0] and rect[3] > rect[1]:
             marker["rect"] = self._map(geom, rect[0], rect[1]) + self._map(geom, rect[2], rect[3])
         st = self._new("click", when, friendly, tech, info, marker=marker, geom=geom, el=el)
+        if trail:
+            st.path = self._path_for(geom, trail, img.size)
         if info.get("cls") in DIALOG_CLASSES:
             st.dialog_text = clean_text("\n".join(self._dialog_info(auto, info["hwnd"])[0]))
         with self._stage("save"):
@@ -845,7 +892,8 @@ class Recorder:
             self.set_mic(True)
         self._worker.start()
         self._watcher.start()
-        self._ml = mouse.Listener(on_click=self.on_click, on_scroll=self.on_scroll)
+        self._ml = mouse.Listener(on_click=self.on_click, on_scroll=self.on_scroll,
+                                  on_move=self.on_move if self.o.mouse_path else None)
         self._ml.start()
         if self.o.key_mode != "none" or self._hk_fallback:
             self._kl = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
@@ -966,6 +1014,7 @@ def main(argv=None):
     ap.add_argument("--log-keys", action="store_true", help="same as --keys text")
     ap.add_argument("--audio-assign", choices=ASSIGN, default="next",
                     help="speech between two clicks goes with the next (default) or the previous click")
+    ap.add_argument("--mouse-path", action="store_true", help="record pointer movement for the narrated player")
     ap.add_argument("--narrate", action="store_true", help="record your voice and attach a clip to each step")
     ap.add_argument("--mouse-only", action="store_true", help="same as --keys none")
     ap.add_argument("--after", choices=["off", "replace", "pair"], default="off")
@@ -1012,7 +1061,8 @@ def main(argv=None):
         key_mode="text" if a.log_keys else "none" if a.mouse_only else a.keys, max_width=a.max_width,
         after_mode=a.after, after_delay_ms=a.after_ms, dbl=not a.no_dbl, drag=not a.no_drag, scroll=a.scroll,
         shortcuts=not a.no_shortcuts, watch_dialogs=not a.no_dialogs, ocr_kinds=kinds, ocr_style=a.mask_style,
-        wording=a.wording, narrate=a.narrate, audio_assign=a.audio_assign)
+        wording=a.wording, narrate=a.narrate, audio_assign=a.audio_assign,
+        mouse_path=a.mouse_path)
     title = a.title or "Recorded steps"
     out = Path(a.out) if a.out else Path("recordings") / session_dir_name(a.title)
     rec = Recorder(out, cap, opts, title)

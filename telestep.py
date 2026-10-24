@@ -200,6 +200,7 @@ class App:
         self.var_shortcuts = tk.BooleanVar(value=d["shortcuts"])
         self.var_dialogs = tk.BooleanVar(value=d["watch_dialogs"])
         self.var_narrate = tk.BooleanVar(value=d.get("narrate", False))
+        self.var_mpath = tk.BooleanVar(value=d.get("mouse_path", False))
         self.var_audio_dev = tk.StringVar(value=d.get("audio_device", "") or ta.DEFAULT_NAME)
         ta.preferred = d.get("audio_device", "") or ""
         self.var_assign = tk.StringVar(value=d.get("audio_assign", "next"))
@@ -382,7 +383,8 @@ class App:
         self.rec_checks = [ttk.Checkbutton(rec, text=txt, variable=var) for txt, var in (
             ("Double-clicks", self.var_dbl), ("Drags", self.var_drag), ("Scrolling", self.var_scroll),
             ("Keyboard shortcuts (Ctrl+S ...)", self.var_shortcuts),
-            ("Error / message boxes + admin-window warning", self.var_dialogs))]
+            ("Error / message boxes + admin-window warning", self.var_dialogs),
+            ("Mouse movement (for the narrated player)", self.var_mpath))]
         for i, c in enumerate(self.rec_checks):
             c.grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 12))
         ttk.Checkbutton(t, text="Show capture outline",
@@ -970,7 +972,7 @@ class App:
             "after_mode": AFTER[self.var_after.get()], "after_delay_ms": self._int(self.var_delay, 700),
             "max_width": self._int(self.var_width, 1600), "dbl": self.var_dbl.get(), "drag": self.var_drag.get(),
             "scroll": self.var_scroll.get(), "shortcuts": self.var_shortcuts.get(),
-            "watch_dialogs": self.var_dialogs.get(), "narrate": self.var_narrate.get(), "audio_assign": self.var_assign.get(),
+            "watch_dialogs": self.var_dialogs.get(), "narrate": self.var_narrate.get(), "mouse_path": self.var_mpath.get(), "audio_assign": self.var_assign.get(),
             "audio_device": "" if self.var_audio_dev.get() == ta.DEFAULT_NAME else self.var_audio_dev.get(), "masks": [m.to_dict() for m in self.masks],
             "mask_style": self.style_key(), "key_mode": KEYS[self.var_keys.get()],
             "ocr": {k: v.get() for k, v in self.var_ocr.items()}, "ocr_labels": self.var_ocr_labels.get(), "ocr_enabled": self.var_ocr_on.get(), "formats": {k: v.get() for k, v in self.var_fmt.items()},
@@ -1015,7 +1017,7 @@ class App:
         self.var_width.set(d["max_width"])
         for var, key in ((self.var_dbl, "dbl"), (self.var_drag, "drag"), (self.var_scroll, "scroll"),
                          (self.var_shortcuts, "shortcuts"), (self.var_dialogs, "watch_dialogs"),
-                         (self.var_narrate, "narrate"), (self.var_assign, "audio_assign"),
+                         (self.var_narrate, "narrate"), (self.var_assign, "audio_assign"), (self.var_mpath, "mouse_path"),
                          (self.var_review, "review_after_stop"), (self.var_flash, "flash"), (self.var_sound, "sound"),
                          (self.var_overlay, "overlays"), (self.var_hide, "hide_from_capture")):
             var.set(d[key])
@@ -1339,6 +1341,7 @@ class App:
             after_mode=AFTER[self.var_after.get()], after_delay_ms=self._int(self.var_delay, 700),
             dbl=self.var_dbl.get(), drag=self.var_drag.get(), scroll=self.var_scroll.get(),
             shortcuts=self.var_shortcuts.get(), watch_dialogs=self.var_dialogs.get(), narrate=self.var_narrate.get(), audio_assign=self.var_assign.get(),
+            mouse_path=self.var_mpath.get(),
             ocr_kinds=[k for k, v in self.var_ocr.items() if v.get()] if self.var_ocr_on.get() else [], ocr_style=self.style_key(),
             wording=self.wording(), ocr_labels=self.var_ocr_labels.get() and self.var_ocr_on.get(), hotkeys=hk)
 

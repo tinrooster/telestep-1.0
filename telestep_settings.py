@@ -12,7 +12,7 @@ DEFAULTS = {
     "capture_mode": "screen", "monitor": 1, "region": None, "exclude_taskbar": False,
     "after_mode": "off", "after_delay_ms": 700, "max_width": 1600,
     "dbl": True, "drag": True, "scroll": False, "shortcuts": True, "watch_dialogs": True,
-    "narrate": False, "audio_device": "", "audio_assign": "next",
+    "mouse_path": False, "narrate": False, "audio_device": "", "audio_assign": "next",
     # privacy
     "masks": [], "mask_style": "pixelate_fine", "key_mode": "count",
     "ocr": {"ip": False, "mac": False, "key": False, "email": False, "card": False, "ssn": False}, "ocr_style": "solid", "ocr_labels": True, "ocr_enabled": True,

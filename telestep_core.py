@@ -1232,3 +1232,35 @@ def tell_already_running(title, window_title=None):
                       "Close that copy first if you want to start a new one.", title, 0x40 | 0x40000)  # info + topmost
     except Exception:
         pass
+
+
+def simplify_path(points, eps=3.0, limit=80):
+    """Thin a mouse path.  points = [(ms, x, y)]; keeps the corners and turns (Ramer-Douglas-Peucker on x, y), so a long
+    wobbly path becomes a few dozen points.  The first and last point always stay."""
+    if len(points) <= 2:
+        return [tuple(p) for p in points]
+
+    def dist(p, a, b):
+        (_, px, py), (_, ax, ay), (_, bx, by) = p, a, b
+        dx, dy = bx - ax, by - ay
+        if dx == 0 and dy == 0:
+            return ((px - ax) ** 2 + (py - ay) ** 2) ** 0.5
+        t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+        return ((px - (ax + t * dx)) ** 2 + (py - (ay + t * dy)) ** 2) ** 0.5
+
+    while True:
+        keep = {0, len(points) - 1}
+        stack = [(0, len(points) - 1)]
+        while stack:
+            lo, hi = stack.pop()
+            far, idx = 0.0, None
+            for i in range(lo + 1, hi):
+                d = dist(points[i], points[lo], points[hi])
+                if d > far:
+                    far, idx = d, i
+            if idx is not None and far > eps:
+                keep.add(idx)
+                stack += [(lo, idx), (idx, hi)]
+        if len(keep) <= limit:
+            return [tuple(points[i]) for i in sorted(keep)]
+        eps *= 1.5
