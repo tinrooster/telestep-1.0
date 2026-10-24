@@ -49,6 +49,8 @@ class Step:
     skip: bool = False  # excluded from reports but kept in the session
     auto: bool = False  # made by Telestep itself (e.g. admin-window warning), not by the person
     comment: str = ""  # extra line shown under the caption (typed at record time or in the review editor)
+    audio: str = ""  # voice note (WAV) relative to the session folder, e.g. audio/<id>.wav
+    apos: float = -1.0  # where in the narration recording this step happened (seconds); -1 = not narrated
     marks: list = None  # hand-made annotations drawn on the picture: [{"t": box|arrow|text|num, "p": [...], ...}]
 
     def caption(self, wording="friendly"):
@@ -123,7 +125,7 @@ class Session:
             if step in self.steps:
                 self.steps.remove(step)
         if remove_files:
-            for rel in (step.raw, step.raw_after, step.image, step.image_after):
+            for rel in (step.raw, step.raw_after, step.image, step.image_after, step.audio):
                 if rel:
                     try:
                         (self.dir / rel).unlink()
@@ -174,6 +176,15 @@ class Session:
                         setattr(twin, attr, new_rel)
                     except OSError:
                         setattr(twin, attr, rel)  # fall back to sharing the file (delete() then keeps it, see below)
+            if step.audio and (self.dir / step.audio).exists():
+                new_rel = f"audio/{twin.id}.wav"
+                try:
+                    shutil.copyfile(self.dir / step.audio, self.dir / new_rel)
+                    twin.audio = new_rel
+                except OSError:
+                    twin.audio = ""
+            else:
+                twin.audio = ""
             self.steps.insert(self.steps.index(step) + 1, twin)
         return twin
 
@@ -200,6 +211,21 @@ class Session:
             else:
                 keep_file = ""
             head.comment = " ".join(x for x in [head.comment] + [s.comment for s in rest] if x).strip()
+            clips = [s.audio for s in group if s.audio and (self.dir / s.audio).exists()]
+            if len(clips) > 1:
+                import telestep_audio
+                dest = f"audio/{head.id}.wav"
+                tmp = self.dir / "audio" / f"{head.id}_joined.tmp"
+                if telestep_audio.join_clips([self.dir / c for c in clips], tmp):
+                    for c in clips:
+                        try:
+                            (self.dir / c).unlink()
+                        except OSError:
+                            pass
+                    tmp.replace(self.dir / dest)
+                    head.audio = dest
+            elif clips:
+                head.audio = clips[0]
             head.dialog_text = "\n".join(x for x in [head.dialog_text] + [s.dialog_text for s in rest] if x)
             for s in rest:
                 if s in self.steps:

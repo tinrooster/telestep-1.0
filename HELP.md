@@ -121,6 +121,24 @@ A step can have a one-line comment shown under its caption (for what to wait for
 press Ctrl+Shift+F5 (or right-click the toolbar > *Comment on next step*) and it is attached to the next step you record.
 In the review editor use the **Comment** box under the caption.
 
+## Voice narration
+Tick **Settings > Capture > Also record > Voice narration** and talk while you work. When you stop, the recording is cut into
+one short clip per step: **what you say before a click goes with that click**, and anything after the last click goes with
+the last step. Pausing the recording pauses the microphone too, so nothing said while paused is kept. Quiet stretches
+(no speech) get no clip. A 🔊 in the step list marks steps with a voice note.
+
+In the review editor, **Voice note** under the caption lets you play, re-record or remove a step's clip (you can also add
+notes to a recording made without narration). Voice notes are saved as `audio/` files in the recording folder; merging steps
+joins their clips, duplicating copies them.
+
+Exports: the **HTML** report gets a play button per step (about 1.3 MB per minute of speech, so long narrations make big
+files), and the **ZIP bundle** and Markdown include and link the audio files. Word, PDF and plain text cannot play sound,
+so they leave it out.
+
+Privacy: the privacy check and hide tools work on pictures and text only. **Voice is not scrubbed**, so check what you said
+before sharing a recording. Needs Windows and a microphone that desktop apps are allowed to use (Settings > Privacy >
+Microphone). Command line: `--narrate`.
+
 ## Editing steps
 - **Merge**: select two or more steps (Ctrl+click or Shift+click) and use *More > Merge selected steps* (or right-click).
   The captions are joined ("Click File, then click Save"), the first screenshot is kept and the last one becomes the

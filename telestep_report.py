@@ -183,7 +183,8 @@ def build_blocks(session, tpl):
                     imgs.append(("After", s.image_after))
                 out.append({"type": "step", "n": nums.get(s.id, 0), "text": cap, "meta": " | ".join(meta),
                             "images": imgs, "dialog": "" if tpl.docs else clean_text(s.dialog_text),
-                            "comment": clean_text(getattr(s, "comment", "") or "")})
+                            "comment": clean_text(getattr(s, "comment", "") or ""),
+                            "audio": s.audio if getattr(s, "audio", "") and (session.dir / s.audio).exists() else ""})
     return out
 
 
@@ -253,6 +254,8 @@ def write_markdown(session, tpl):
             lines += [f"**{b['n']}. {b['text'].replace('`', '')}**", ""]
             if b["comment"]:
                 lines += [f"_{b['comment']}_", ""]
+            if b["audio"]:
+                lines += [f"[Voice note]({b['audio']})", ""]
             for label, rel in b["images"]:
                 lines += [f"![Step {b['n']}]({rel})", ""]
         else:
@@ -260,6 +263,8 @@ def write_markdown(session, tpl):
             lines.append(f"**{b['text'].replace('`', '')}**  ")
             if b["comment"]:
                 lines.append(f"{b['comment']}  ")
+            if b["audio"]:
+                lines.append(f"[Voice note]({b['audio']})  ")
             if b["meta"]:
                 lines.append(f"_{b['meta']}_")
             lines.append("")
@@ -494,7 +499,7 @@ def write_docx(session, tpl):
 # ---------------------------------------------------------------------------
 def _data_uri(path):
     p = Path(path)
-    mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+    mime = {".png": "image/png", ".wav": "audio/wav"}.get(p.suffix.lower(), "image/jpeg")
     return f"data:{mime};base64," + base64.b64encode(p.read_bytes()).decode("ascii")
 
 
@@ -519,6 +524,7 @@ def write_html(session, tpl):
     .step .cap .num {{ color: var(--acc); margin-right: 6px; }}
     .meta {{ color: #778; font-size: 12px; }}
     .comment {{ color: #445; font-style: italic; margin: 2px 0 4px; }}
+    audio {{ display: block; width: 100%; max-width: 360px; margin: 4px 0 6px; }}
     figure {{ margin: 8px 0 0; }} figure img {{ max-width: 100%; border: 1px solid #ccd; border-radius: 4px; }}
     figcaption {{ font-size: 12px; color: #778; margin-bottom: 2px; }}
     .callout {{ border-left: 4px solid; padding: 8px 12px; margin: 16px 0; border-radius: 3px; }}
@@ -557,6 +563,8 @@ def write_html(session, tpl):
             out.append(f"<section class='step'><div class='cap'><span class='num'>{b['n']}.</span>{_h(b['text'])}</div>")
             if b["comment"] and not tpl.onesheet:
                 out.append(f"<div class='comment'>{_h(b['comment'])}</div>")
+            if b["audio"] and not tpl.onesheet:
+                out.append(f"<audio controls preload='none' src='{_data_uri(session.dir / b['audio'])}'></audio>")
             for label, rel in (b["images"][:1] if tpl.onesheet else b["images"]):
                 out.append(f"<figure><img alt='Step {b['n']}' src='{_data_uri(session.dir / rel)}'></figure>")
             out.append("</section>")
@@ -564,6 +572,8 @@ def write_html(session, tpl):
             out.append(f"<section class='step'><h3>Step {b['n']}</h3><div class='cap'>{_h(b['text'])}</div>")
             if b["comment"]:
                 out.append(f"<div class='comment'>{_h(b['comment'])}</div>")
+            if b["audio"]:
+                out.append(f"<audio controls preload='none' src='{_data_uri(session.dir / b['audio'])}'></audio>")
             if b["meta"]:
                 out.append(f"<div class='meta'>{_h(b['meta'])}</div>")
             if b["dialog"]:
@@ -824,7 +834,8 @@ def write_runbook(session, tpl):
 def write_bundle(session, tpl):
     import zipfile
     md = write_markdown(session, tpl)
-    used = {rel for b in build_blocks(session, tpl) if b["type"] == "step" for _l, rel in b["images"]}
+    blocks = [b for b in build_blocks(session, tpl) if b["type"] == "step"]
+    used = {rel for b in blocks for _l, rel in b["images"]} | {b["audio"] for b in blocks if b["audio"]}
     logo = _logo(tpl)
     if logo:
         used.add("images/logo" + (Path(logo).suffix.lower() or ".png"))

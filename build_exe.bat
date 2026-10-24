@@ -10,7 +10,7 @@ pyinstaller --onefile --windowed --name Telestep --icon assets\telestep.ico ^
   --add-data "HELP.md;." --add-data "LICENSE;." --add-data "THIRD_PARTY_NOTICES.md;." ^
   --add-data "assets\telestep_logo_256.png;assets" --add-data "assets\telestep_icon_64.png;assets" ^
   --hidden-import telestep_help --hidden-import telestep_support ^
-  --hidden-import telestep_review --hidden-import telestep_report --hidden-import telestep_widgets --hidden-import telestep_settings --hidden-import telestep_privacy --hidden-import telestep_update ^
+  --hidden-import telestep_review --hidden-import telestep_report --hidden-import telestep_widgets --hidden-import telestep_settings --hidden-import telestep_privacy --hidden-import telestep_marks --hidden-import telestep_update --hidden-import telestep_audio ^
   telestep.py
 echo.
 echo Done: dist\Telestep.exe   (GUI only; use python telestep_recorder.py for the command line)

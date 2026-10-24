@@ -23,7 +23,7 @@ Nothing leaves your computer: no cloud service, no account, no upload.
 - **Right-click menus** on the step list, the screenshot and the toolbar.
 - **Smarter captions:** controls that expose no name are labelled with nearby on-screen text (OCR, optional).
 - **Report styles:** Technical report, clean end-user Documentation, or a condensed one-sheet Documentation layout.
-- **Review editor:** delete, exclude, reorder (also in blocks, to top/bottom), merge and duplicate steps, edit captions, add a comment under any step, add section headings and Note / Warning / Tip callouts, draw boxes, arrows, text and numbered call-outs on the pictures, switch between friendly and technical wording, and mask anything you missed after the fact.
+- **Review editor:** delete, exclude, reorder (also in blocks, to top/bottom), merge and duplicate steps, edit captions, add a comment under any step, add section headings and Note / Warning / Tip callouts, draw boxes, arrows, text (typed on the picture) and numbered call-outs on the pictures, then move, resize, recolour and fade them, switch between friendly and technical wording, and mask anything you missed after the fact.
 - **Export:** Markdown, DOCX, HTML (single file), PDF and text, a tick-box Runbook checklist with a verification log, and a ZIP bundle (Markdown plus pictures) for wikis and tickets; with header, footer, logo and an environment appendix.
 - **Portable mode** (`portable.txt` next to the program) and an optional, off-by-default update check.
 - **Support mode:** a one-button recorder for end users that produces a single ZIP (one-sheet HTML report, steps, system and network details) to send to IT.
@@ -180,6 +180,7 @@ on each PC that needs OCR redaction.
 | `telestep_review.py` | review and edit window |
 | `telestep_widgets.py` | icons, overlays, dialogs |
 | `telestep_settings.py` | saved settings, presets, portable mode |
+| `telestep_marks.py` | review-window annotation tools (boxes, arrows, inline text, numbers) |
 | `telestep_privacy.py` | the "check for private information before export" scan and dialog |
 | `telestep_update.py` | the optional update check (the only network use) |
 | `telestep_support.py` | Support mode (one-click recorder that produces a ZIP for IT) |

@@ -335,5 +335,5 @@ def check_before_export(parent, session, style="solid", step_no=None):
     found = scan_text(session, ignored)
     if not found:
         return True, False
-    dlg = PrivacyDialog(parent, session, found, style=style, ocr_ok=core.ocr_available(), step_no=step_no)
+    dlg = PrivacyDialog(parent, session, found, style=style, ocr_ok=core.ocr_status() is not False, step_no=step_no)
     return dlg.result == "export", dlg.changed

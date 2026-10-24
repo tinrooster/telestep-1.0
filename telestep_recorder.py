@@ -82,6 +82,7 @@ class RecordOpts:
     wording: str = "friendly"
     ocr_labels: bool = True  # label clicks on unnamed controls with nearby text (needs Tesseract; silently skipped if absent)
     hotkeys: dict = field(default_factory=lambda: dict(DEFAULT_HOTKEYS))
+    narrate: bool = False  # record your voice while you work; cut into one clip per step when you stop
 
 
 class _Holder:
@@ -130,6 +131,7 @@ class Recorder:
         self._tls = threading.local()
         self._last_pw = False
         self._pending_comment = ""
+        self.narr = None  # telestep_audio.Narrator while narrating
         self._mods = set()
         self._press = None
         self._last_click = None
@@ -337,6 +339,8 @@ class Recorder:
 
     def toggle_pause(self):
         self.paused = not self.paused
+        if self.narr:  # the microphone follows the pause, so off-the-record chatter is never kept
+            (self.narr.pause if self.paused else self.narr.resume)()
         self.events.put(("paused", self.paused))
 
     def request_stop(self):
@@ -579,6 +583,8 @@ class Recorder:
             app = core.app_info(info.get("pid", 0)) if info.get("pid") else {}
         if self._pending_comment and kind not in ("note", "section", "dialog") and "comment" not in kw:
             kw["comment"], self._pending_comment = self._pending_comment, ""
+        if self.narr and kind not in ("note", "section"):
+            kw.setdefault("apos", self.narr.pos_at(when))
         return Step(new_id(), kind, when.strftime("%H:%M:%S"), friendly, tech, window=info.get("title", ""),
                     app=app.get("app", ""), app_version=app.get("version", ""), **kw)
 
@@ -808,6 +814,14 @@ class Recorder:
         self.session.settings = {"wording": self.o.wording}
         self.session.save()
         self._register_hotkeys()
+        if self.o.narrate:
+            import telestep_audio
+            n = telestep_audio.Narrator()
+            ok, msg = n.start()
+            if ok:
+                self.narr = n
+            else:
+                self.events.put(("warn", f"Voice narration is off: {msg}"))
         self._worker.start()
         self._watcher.start()
         self._ml = mouse.Listener(on_click=self.on_click, on_scroll=self.on_scroll)
@@ -816,6 +830,7 @@ class Recorder:
             self._kl = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
             self._kl.start()
 
+    narr = None  # telestep_audio.Narrator while narrating
     slow_log = None  # optional callable(str); the app points it at its debug log
 
     def pending(self):
@@ -835,8 +850,31 @@ class Recorder:
         self._worker.join()
         if self._watcher.is_alive():
             self._watcher.join(2)
+        self._finish_audio()
         self.session.save()
         return self.session
+
+    def _finish_audio(self):
+        """End the narration and cut it into one clip per numbered step (see telestep_audio)."""
+        n, self.narr = self.narr, None
+        if not n:
+            return
+        import telestep_audio
+        master = self.session.dir / "audio" / "_narration.wav"
+        try:
+            if n.stop(master):
+                marks = [(s.id, s.apos) for s in self.session.steps if s.numbered and s.apos >= 0]
+                done = telestep_audio.cut_clips(master, marks, self.session.dir / "audio")
+                by_id = {s.id: s for s in self.session.steps}
+                for sid, fn in done.items():
+                    by_id[sid].audio = f"audio/{fn}"
+        except Exception as e:  # narration is a bonus; never lose the steps over it
+            self.events.put(("warn", f"Could not save the narration ({type(e).__name__}: {e})"))
+        finally:
+            try:
+                master.unlink()
+            except OSError:
+                pass
 
     def run(self):
         self.start()
@@ -888,6 +926,7 @@ def main(argv=None):
     ap.add_argument("--ocr-redact", default="", help="comma list of ip,mac,key,email")
     ap.add_argument("--keys", choices=["none", "count", "text"], default="count")
     ap.add_argument("--log-keys", action="store_true", help="same as --keys text")
+    ap.add_argument("--narrate", action="store_true", help="record your voice and attach a clip to each step")
     ap.add_argument("--mouse-only", action="store_true", help="same as --keys none")
     ap.add_argument("--after", choices=["off", "replace", "pair"], default="off")
     ap.add_argument("--after-ms", type=int, default=700)
@@ -933,7 +972,7 @@ def main(argv=None):
         key_mode="text" if a.log_keys else "none" if a.mouse_only else a.keys, max_width=a.max_width,
         after_mode=a.after, after_delay_ms=a.after_ms, dbl=not a.no_dbl, drag=not a.no_drag, scroll=a.scroll,
         shortcuts=not a.no_shortcuts, watch_dialogs=not a.no_dialogs, ocr_kinds=kinds, ocr_style=a.mask_style,
-        wording=a.wording)
+        wording=a.wording, narrate=a.narrate)
     title = a.title or "Recorded steps"
     out = Path(a.out) if a.out else Path("recordings") / session_dir_name(a.title)
     rec = Recorder(out, cap, opts, title)

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Voice narration: optional microphone recording while you work, cut into one clip per step; play, re-record or remove clips in the review editor; HTML report gets players, ZIP bundle and Markdown include the audio. Uses only Windows built-ins (no new packages).
 - Single instance: starting Telestep (or Support mode) a second time shows "already running" instead of opening another toolbar; `--allow-multiple` or `TELESTEP_MULTI=1` overrides.
 - Review step list: more row height and alternating row shading; text marks can be resized from their side handles.
 - Mark-up polish: the format bar is docked at the bottom of the picture instead of following the mark; plain arrow pointer for the mark tools; drawing tools are one-shot (back to Select / move after placing one; "Keep tool" to place several); tools are raised buttons with the active one pressed and highlighted; fonts reduced to Sans, Serif, Console and Handwriting (older saved names map to these).

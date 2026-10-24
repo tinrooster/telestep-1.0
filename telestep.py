@@ -198,6 +198,7 @@ class App:
         self.var_scroll = tk.BooleanVar(value=d["scroll"])
         self.var_shortcuts = tk.BooleanVar(value=d["shortcuts"])
         self.var_dialogs = tk.BooleanVar(value=d["watch_dialogs"])
+        self.var_narrate = tk.BooleanVar(value=d.get("narrate", False))
         self.var_keys = tk.StringVar(value=_inv(KEYS, d["key_mode"]))
         self.var_mstyle = tk.StringVar(value=core.MASK_STYLES[core.canon_style(d["mask_style"])])
         self.var_ocr = {k: tk.BooleanVar(value=d["ocr"].get(k, False)) for k in core.OCR_PATTERNS}
@@ -369,7 +370,8 @@ class App:
         self.rec_checks = [ttk.Checkbutton(rec, text=txt, variable=var) for txt, var in (
             ("Double-clicks", self.var_dbl), ("Drags", self.var_drag), ("Scrolling", self.var_scroll),
             ("Keyboard shortcuts (Ctrl+S ...)", self.var_shortcuts),
-            ("Error / message boxes + admin-window warning", self.var_dialogs))]
+            ("Error / message boxes + admin-window warning", self.var_dialogs),
+            ("Voice narration (microphone, one clip per step)", self.var_narrate))]
         for i, c in enumerate(self.rec_checks):
             c.grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 12))
         ttk.Checkbutton(t, text="Show capture outline",
@@ -813,7 +815,7 @@ class App:
             "after_mode": AFTER[self.var_after.get()], "after_delay_ms": self._int(self.var_delay, 700),
             "max_width": self._int(self.var_width, 1600), "dbl": self.var_dbl.get(), "drag": self.var_drag.get(),
             "scroll": self.var_scroll.get(), "shortcuts": self.var_shortcuts.get(),
-            "watch_dialogs": self.var_dialogs.get(), "masks": [m.to_dict() for m in self.masks],
+            "watch_dialogs": self.var_dialogs.get(), "narrate": self.var_narrate.get(), "masks": [m.to_dict() for m in self.masks],
             "mask_style": self.style_key(), "key_mode": KEYS[self.var_keys.get()],
             "ocr": {k: v.get() for k, v in self.var_ocr.items()}, "ocr_labels": self.var_ocr_labels.get(), "ocr_enabled": self.var_ocr_on.get(), "formats": {k: v.get() for k, v in self.var_fmt.items()},
             "review_after_stop": self.var_review.get(), "wording": self.wording(),
@@ -857,6 +859,7 @@ class App:
         self.var_width.set(d["max_width"])
         for var, key in ((self.var_dbl, "dbl"), (self.var_drag, "drag"), (self.var_scroll, "scroll"),
                          (self.var_shortcuts, "shortcuts"), (self.var_dialogs, "watch_dialogs"),
+                         (self.var_narrate, "narrate"),
                          (self.var_review, "review_after_stop"), (self.var_flash, "flash"), (self.var_sound, "sound"),
                          (self.var_overlay, "overlays"), (self.var_hide, "hide_from_capture")):
             var.set(d[key])
@@ -1179,7 +1182,7 @@ class App:
             key_mode=KEYS[self.var_keys.get()], max_width=self._int(self.var_width, 1600),
             after_mode=AFTER[self.var_after.get()], after_delay_ms=self._int(self.var_delay, 700),
             dbl=self.var_dbl.get(), drag=self.var_drag.get(), scroll=self.var_scroll.get(),
-            shortcuts=self.var_shortcuts.get(), watch_dialogs=self.var_dialogs.get(),
+            shortcuts=self.var_shortcuts.get(), watch_dialogs=self.var_dialogs.get(), narrate=self.var_narrate.get(),
             ocr_kinds=[k for k, v in self.var_ocr.items() if v.get()] if self.var_ocr_on.get() else [], ocr_style=self.style_key(),
             wording=self.wording(), ocr_labels=self.var_ocr_labels.get() and self.var_ocr_on.get(), hotkeys=hk)
 
@@ -1573,7 +1576,8 @@ class App:
                 if rec.holding:
                     self.var_status.set(f"⏳ Catching up +{q}")
                 else:
-                    self.var_status.set(f"● REC  {n}{tail} steps" if st == "rec" else f"‖ Paused  {n}{tail}")
+                    mic = " 🎙" if rec.narr else ""
+                    self.var_status.set(f"● REC{mic}  {n}{tail} steps" if st == "rec" else f"‖ Paused{mic}  {n}{tail}")
         elif self.state == "idle":
             self.var_status.set(self.idle_msg)
         if self.var_toast.get() and time.monotonic() > self.toast_until:

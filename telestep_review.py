@@ -10,12 +10,14 @@ Open it from the toolbar (list icon), automatically after Stop, or:  python tele
 """
 import dataclasses
 import os
+import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
 
+import telestep_audio as audio
 import telestep_core as core
 import telestep_privacy as priv
 from telestep_marks import MarkMixin
@@ -232,6 +234,19 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         self.ent_comment.bind("<Return>", lambda e: (self._commit_comment(), "break")[1])
         cap.columnconfigure(1, weight=1)
 
+        vo = ttk.Frame(cap)  # the step's voice note
+        vo.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        ttk.Label(vo, text="Voice note").pack(side="left", padx=(0, 8))
+        self.btn_vrec = ttk.Button(vo, text="\u25cf Record", command=self.voice_record, width=14)
+        self.btn_vrec.pack(side="left")
+        self.btn_vplay = ttk.Button(vo, text="\u25b6 Play", command=self.voice_play, width=9)
+        self.btn_vplay.pack(side="left", padx=(6, 0))
+        self.btn_vdel = ttk.Button(vo, text="Remove", command=self.voice_remove, width=9)
+        self.btn_vdel.pack(side="left", padx=(6, 0))
+        self.var_vinfo = tk.StringVar()
+        ttk.Label(vo, textvariable=self.var_vinfo, foreground="#667").pack(side="left", padx=10)
+        self._vrec = None  # (Narrator, step) while recording a voice note
+
         mk = ttk.LabelFrame(right, text="Hide private information in the screenshot", padding=6)
         mk.grid(row=5, column=0, sticky="ew", pady=(6, 0))
         self.btn_mask = tk.Button(mk, text="Hide this area", command=self.apply_mask, state="disabled", relief="flat",
@@ -386,6 +401,8 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
             kind = LEVEL_LABEL.get(st.level, "Note")
         if st.skip:
             tags.append("skip")
+        if getattr(st, "audio", ""):
+            cap = "\U0001F50A " + cap
         return ("\u2610" if st.skip else "\u2611", n, kind, cap), tuple(tags)
 
     def refresh(self, select=None):
@@ -414,6 +431,7 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
             self.tree.see(kids[idx])
 
     def on_select(self):
+        self._voice_finish()
         self._commit_editor()
         self._msel = None
         self._drop_markbar()
@@ -426,6 +444,7 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         self.txt.configure(state="normal")
         self.txt.delete("1.0", "end")
         self._txt_wording = self.wording
+        self._sync_voice(st)
         self.var_comment.set(st.comment if st and st.numbered else "")
         self.ent_comment.configure(state="normal" if st and st.numbered else "disabled")
         if st:
@@ -864,6 +883,84 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         self.show_preview()
         return count
 
+    # ------------------------------------------------------------------ voice note
+    def _sync_voice(self, st):
+        ok = bool(st and st.numbered)
+        has = ok and bool(st.audio) and (self.s.dir / st.audio).exists()
+        rec = self._vrec is not None
+        can_rec = ok and audio.available()
+        self.btn_vrec.configure(state="normal" if can_rec else "disabled",
+                                text="\u25a0 Stop" if rec else ("\u25cf Re-record" if has else "\u25cf Record"))
+        self.btn_vplay.configure(state="normal" if has and sys.platform == "win32" else "disabled")
+        self.btn_vdel.configure(state="normal" if has else "disabled")
+        if rec:
+            self.var_vinfo.set("recording... speak now")
+        elif has:
+            self.var_vinfo.set(f"{audio.duration(self.s.dir / st.audio):.0f} s")
+        elif ok and not audio.available():
+            self.var_vinfo.set("(recording needs Windows)")
+        else:
+            self.var_vinfo.set("none" if ok else "")
+
+    def voice_record(self):
+        st = self._cur
+        if self._vrec:
+            self._voice_finish()
+            self._sync_voice(self._cur)
+            return
+        if not st or not st.numbered:
+            return
+        audio.stop_playing()
+        n = audio.Narrator("telestep_note")
+        ok, msg = n.start()
+        if not ok:
+            messagebox.showerror("Telestep", f"Could not start the microphone: {msg}", parent=self)
+            return
+        self._vrec = (n, st)
+        self._sync_voice(st)
+
+    def _voice_finish(self):
+        """Stop a voice note being recorded (also when you click another step) and keep it with its step."""
+        if not self._vrec:
+            return
+        n, st = self._vrec
+        self._vrec = None
+        rel = f"audio/{st.id}.wav"
+        tmp = self.s.dir / "audio" / f"{st.id}_new.tmp"
+        if n.stop(tmp) and audio.duration(tmp) >= audio.MIN_SECONDS:
+            tmp.replace(self.s.dir / rel)
+            st.audio = rel
+            self.s.save()
+            self._edits += 1
+            if self.tree.exists(st.id):
+                self.tree.item(st.id, values=self._row(st, self.s.numbering())[0])
+        else:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+    def voice_play(self):
+        st = self._cur
+        if st and st.audio and (self.s.dir / st.audio).exists():
+            audio.play(self.s.dir / st.audio)
+
+    def voice_remove(self):
+        st = self._cur
+        if not st or not st.audio:
+            return
+        audio.stop_playing()
+        try:
+            (self.s.dir / st.audio).unlink()
+        except OSError:
+            pass
+        st.audio = ""
+        self.s.save()
+        self._edits += 1
+        if self.tree.exists(st.id):
+            self.tree.item(st.id, values=self._row(st, self.s.numbering())[0])
+        self._sync_voice(st)
+
     # ------------------------------------------------------------------ editing
     def _commit_comment(self):
         st = self._cur
@@ -1103,6 +1200,8 @@ class ReviewWindow(tk.Toplevel, MarkMixin):
         return sig != self._opened_sig or not self._has_outputs()  # untouched + already has files: just looking
 
     def close(self):
+        self._voice_finish()
+        audio.stop_playing()
         if self._unexported():
             ans = messagebox.askyesnocancel(
                 "Telestep",
