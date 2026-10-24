@@ -3,7 +3,6 @@ import sys, os, re, wave, struct, math, tempfile, subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 for m in ("pynput","pynput.mouse","pynput.keyboard","mss","uiautomation"): sys.modules[m]=MagicMock()
-sys.path.insert(0,"/home/claude/telestep_work/Telestep")
 import os
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "harness.py"), encoding="utf-8").read())   # make_session helper
 import telestep_report as rep, telestep_player as pl

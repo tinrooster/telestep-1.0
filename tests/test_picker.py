@@ -66,7 +66,7 @@ telestep.w.SessionPicker=FakePicker
 app.open_review(); chk("toolbar uses picker, cancel opens nothing", seen["base"]==base and app.review is None)
 tips=[]
 for b in (app.btn_review, app.btn_folder): pass
-src=open("/home/claude/telestep_work/Telestep/telestep.py").read()
+src=open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "telestep.py"), encoding="utf-8").read()
 chk("tooltips clarified", "pick from a list" in src and "File Explorer" in src)
 print(f"{ok} passed, {bad} failed")
 if 'ok' in globals(): sys.exit(1 if bad else 0)
