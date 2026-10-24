@@ -81,6 +81,10 @@ permanently changes the saved screenshot(s), so it is not undone by closing the 
 - **Recordings folder (folder icon):** opens File Explorer on the recordings folder, for grabbing the exported files
   (Word, PDF, ...) or the screenshots. It doesn't open anything in Telestep.
 
+## Toolbar opacity
+
+Settings > Options > Toolbar opacity makes the toolbar see-through (30-100%). It only applies while Settings is collapsed; with Settings open the toolbar is solid (while you drag the slider you see the chosen level). With "Solid while the pointer is over it" ticked it also becomes fully solid when you point at it.
+
 ## Hotkeys
 In Settings, click a hotkey box and press the keys you want (for example Ctrl+Shift+F7). Esc cancels, Backspace resets
 to the default. A key can't be used twice, and plain letters need Ctrl, Alt or Shift.

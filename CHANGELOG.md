@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Options: toolbar opacity slider (30-100%), applied only while Settings is collapsed, optionally solid while the pointer is over the toolbar. Saved with the settings.
+
 - Build scripts: `--noupx` and `--exclude-module numpy/pandas/setuptools/pkg_resources` (a normal Python install was pulling them into the exe), and a note to build from a clean virtual environment.
 
 - Hide styles simplified: removed Hatched and Frosted glass; added Pixelated (fine), Blurred and Blurred (heavy) (real Gaussian blur that blends with its surroundings). Old settings and sessions that used the removed styles open as Soft gray / Blurred.

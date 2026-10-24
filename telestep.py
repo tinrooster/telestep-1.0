@@ -216,6 +216,10 @@ class App:
         self.var_overlay = tk.BooleanVar(value=d["overlays"])
         self.var_preview = tk.BooleanVar(value=True)  # outline while setting up (this session only)
         self.var_hide = tk.BooleanVar(value=d["hide_from_capture"])
+        self.var_opacity = tk.IntVar(value=max(30, min(100, int(d.get("toolbar_opacity", 100)))))
+        self.var_solid_hover = tk.BooleanVar(value=d.get("toolbar_solid_hover", True))
+        self._adjusting_opacity = False
+        self._hover = False
         self.var_hk = {k: tk.StringVar(value=d["hotkeys"].get(k, cfg.DEFAULT_HOTKEYS[k])) for k in cfg.DEFAULT_HOTKEYS}
         self.var_cfg = tk.BooleanVar(value=False)
         self.var_scope = tk.StringVar(value="")
@@ -288,6 +292,7 @@ class App:
         root.update_idletasks()
         self.place_toolbar()
         self.apply_capture_exclusion()
+        self._apply_opacity()
         if self.var_tray.get():
             self.tray.start()
         self.poll()
@@ -458,6 +463,25 @@ class App:
             self.chk_closetray.state(["disabled"])
             ttk.Label(tr, text="(pip install pystray)", foreground="gray").grid(row=0, column=2, sticky="w", padx=6)
         tr.grid(row=4, column=0, columnspan=2, sticky="w")
+        op = ttk.Frame(t)
+        op.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        ttk.Label(op, text="Toolbar opacity").grid(row=0, column=0, sticky="w")
+        sc = ttk.Scale(op, from_=30, to=100, orient="horizontal", length=int(150 * self.scale),
+                       command=self._opacity_dragged)
+        sc.set(self.var_opacity.get())
+        sc.grid(row=0, column=1, padx=8)
+        sc.bind("<ButtonPress-1>", lambda e: setattr(self, "_adjusting_opacity", True), add="+")
+        sc.bind("<ButtonRelease-1>", lambda e: (setattr(self, "_adjusting_opacity", False), self._apply_opacity()), add="+")
+        self.scale_opacity = sc
+        pct = ttk.Frame(op)
+        pct.grid(row=0, column=2, sticky="w")
+        ttk.Label(pct, textvariable=self.var_opacity).pack(side="left")
+        ttk.Label(pct, text="%").pack(side="left")
+        ttk.Checkbutton(op, text="Solid while the pointer is over it", variable=self.var_solid_hover,
+                        command=self._apply_opacity).grid(row=1, column=0, columnspan=3, sticky="w")
+        ttk.Label(op, text="Applies when Settings is collapsed (the toolbar stays solid while Settings is open).",
+                  foreground="gray", wraplength=int(330 * self.scale), justify="left"
+                  ).grid(row=2, column=0, columnspan=3, sticky="w")
         hk = ttk.LabelFrame(t, text="Hotkeys - click a box, then press the keys (Esc cancels, Backspace resets)",
                             padding=6)
         hk.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 0))
@@ -556,6 +580,23 @@ class App:
         w.exclude_from_capture(self.root, self.var_hide.get())
         self.overlays.apply_affinity()
 
+    def _opacity_dragged(self, value):
+        self.var_opacity.set(int(round(float(value) / 5.0) * 5))  # steps of 5%
+        self._apply_opacity()
+
+    def _apply_opacity(self):
+        """Toolbar see-through level.  Applies only while Settings is collapsed; with Settings open the toolbar is
+        solid (the slider shows the level while it is being dragged).  The pointer on it also makes it solid
+        when that option is on."""
+        if self._adjusting_opacity:
+            solid = False  # dragging the slider: show the chosen level
+        else:  # only the collapsed toolbar is see-through; with Settings open it is solid
+            solid = self.var_cfg.get() or (self._hover and self.var_solid_hover.get())
+        try:
+            self.root.attributes("-alpha", 1.0 if solid else self.var_opacity.get() / 100.0)
+        except tk.TclError:
+            pass
+
     def ask(self, kind, msg):
         return getattr(messagebox, kind)(TITLE, msg, parent=self.root)
 
@@ -592,6 +633,7 @@ class App:
             "sound": self.var_sound.get(), "tray": self.var_tray.get(), "hide_in_tray": self.var_hidetray.get(),
             "close_to_tray": self.var_closetray.get(),
             "hide_from_capture": self.var_hide.get(), "overlays": self.var_overlay.get(),
+            "toolbar_opacity": self.var_opacity.get(), "toolbar_solid_hover": self.var_solid_hover.get(),
             "toolbar_pos": self.data.get("toolbar_pos"), "presets": self.data.get("presets", {}),
         })
         return d
@@ -626,6 +668,11 @@ class App:
                          (self.var_review, "review_after_stop"), (self.var_flash, "flash"), (self.var_sound, "sound"),
                          (self.var_overlay, "overlays"), (self.var_hide, "hide_from_capture")):
             var.set(d[key])
+        self.var_opacity.set(max(30, min(100, int(d.get("toolbar_opacity", 100)))))
+        self.var_solid_hover.set(d.get("toolbar_solid_hover", True))
+        if hasattr(self, "scale_opacity"):
+            self.scale_opacity.set(self.var_opacity.get())
+            self._apply_opacity()
         self.var_keys.set(_inv(KEYS, d["key_mode"]))
         self.var_mstyle.set(core.MASK_STYLES[core.canon_style(d["mask_style"])])
         for k, v in self.var_ocr.items():
@@ -753,6 +800,7 @@ class App:
             self.refresh_screens()
         else:
             self.cfg.grid_remove()
+        self._apply_opacity()
         self.update_summary()
         self.root.update_idletasks()
         self.update_overlays()
@@ -1234,6 +1282,11 @@ class App:
                                   else "Tesseract is not installed, so the OCR options do nothing yet (see README).")
             self._ocr_result = None
         self.toolbar_rect = w.window_screen_rect(self.root)
+        if self.var_opacity.get() < 100:
+            hover = self.over_toolbar(core.cursor_pos())
+            if hover != self._hover:
+                self._hover = hover
+                self._apply_opacity()
         rec = self.rec
         self._handle_events()
         rec = self.rec

@@ -21,7 +21,7 @@ DEFAULTS = {
     "template": {"header": "", "footer": "", "logo": "", "author": "", "environment": True, "focus": "off"},
     # app
     "hotkeys": dict(DEFAULT_HOTKEYS), "flash": True, "sound": False, "tray": False, "hide_in_tray": False, "close_to_tray": True,
-    "hide_from_capture": True, "overlays": True, "toolbar_pos": None, "presets": {},
+    "hide_from_capture": True, "overlays": True, "toolbar_opacity": 100, "toolbar_solid_hover": True, "toolbar_pos": None, "presets": {},
 }
 NESTED = ("ocr", "formats", "template", "hotkeys")
 # what a preset stores (everything except per-machine bits and the preset list itself)
