@@ -878,9 +878,20 @@ class App:
             return dx * dx + dy * dy
         return min(self.screens[1:], key=dist)
 
-    def _on_screen(self, x, y, w, h):
-        """(x, y) moved the least needed so a w x h window lies fully on the nearest monitor."""
-        m = self._nearest_monitor(x + 8, y + 8)
+    def _monitor_for(self, x, y, w, h):
+        """The monitor that holds most of the w x h rectangle at (x, y) (the nearest one when it is off every screen)."""
+        best, area = None, 0
+        for m in self.screens[1:]:
+            ow = min(x + w, m["left"] + m["width"]) - max(x, m["left"])
+            oh = min(y + h, m["top"] + m["height"]) - max(y, m["top"])
+            if ow > 0 and oh > 0 and ow * oh > area:
+                best, area = m, ow * oh
+        return best or self._nearest_monitor(x + 8, y + 8)
+
+    def _on_screen(self, x, y, w, h, icon=None):
+        """(x, y) moved the least needed so a w x h window lies fully on its monitor (never spilling onto a neighbour)."""
+        iw, ih = icon or (w, h)  # the monitor is the one the (small) icon sits on, not the one the grown bar overlaps most
+        m = self._monitor_for(x, y, iw, ih)
         if not m:
             return x, y
         x = max(m["left"], min(x, m["left"] + m["width"] - w - 2))
@@ -934,14 +945,21 @@ class App:
         if not self._compact_on or on == self._expanded:
             return
         self._expanded = on
+        icon_size = (max(self.root.winfo_width(), 1), max(self.root.winfo_height(), 1))
         if on:
             self.c_ctl.grid(row=0, column=3, padx=(2, 0))
         else:
             self.c_ctl.grid_remove()
         self.root.update_idletasks()
         x, y = self._cx0, self._cy0
-        if on:  # near any edge it grows the other way instead of off the screen
-            x, y = self._on_screen(x, y, self.root.winfo_reqwidth(), self.root.winfo_reqheight())
+        if on:  # near any edge it grows the other way instead of off the screen (or onto the next monitor)
+            if time.monotonic() - getattr(self, "_screens_t", 0) > 10:  # monitors may have been moved or unplugged
+                self._screens_t = time.monotonic()
+                try:
+                    self.screens = w.list_screens() or self.screens
+                except Exception:
+                    pass
+            x, y = self._on_screen(x, y, self.root.winfo_reqwidth(), self.root.winfo_reqheight(), icon_size)
         self.root.geometry(f"+{int(x)}+{int(y)}")
         self.root.update_idletasks()
         self._toolbar_moved()

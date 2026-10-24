@@ -22,4 +22,12 @@ check("collapses back to its spot", root.winfo_x() == 1920 - w - 2 and root.winf
 app._cx0, app._cy0 = 500, 1080 - h; root.geometry(f"+{app._cx0}+{app._cy0}"); root.update()
 app._expand_compact(True); root.update()
 check("bottom edge ok", root.winfo_y() + root.winfo_reqheight() <= 1080, (root.winfo_y(), root.winfo_reqheight()))
+# three monitors side by side: the icon at the right edge of the MIDDLE one opens leftwards, not onto the third
+app.screens = [{"left": 0, "top": 0, "width": 5760, "height": 1080}] + [{"left": l, "top": 0, "width": 1920, "height": 1080} for l in (0, 1920, 3840)]
+app._screens_t = __import__("time").monotonic()
+for x in (3840 - w, 3840 - w - 2, 3840 - w - 30):
+    app._cx0, app._cy0 = x, 300; root.geometry(f"+{x}+300"); root.update()
+    app._expand_compact(True); root.update()
+    check(f"middle screen edge {x}", root.winfo_x() >= 1920 and root.winfo_x() + root.winfo_reqwidth() <= 3840, (root.winfo_x(), root.winfo_reqwidth()))
+    app._expand_compact(False); root.update()
 print(f"{ok} passed, {bad} failed"); sys.exit(1 if bad else 0)
