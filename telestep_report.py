@@ -29,9 +29,9 @@ STYLES = {"report": "Technical report (all details)",
           "docs": "Documentation (clean, for end users)",
           "onesheet": "Documentation - one sheet (condensed)"}
 FORMATS = {"md": "Markdown", "docx": "Word (DOCX)", "html": "HTML (single file)", "pdf": "PDF", "txt": "Plain text",
-           "runbook": "Runbook checklist", "zip": "ZIP bundle"}
+           "runbook": "Runbook checklist", "zip": "ZIP bundle", "player": "Narrated player (HTML)"}
 OUTPUT_FILES = {"md": "steps.md", "docx": "steps.docx", "html": "steps.html", "pdf": "steps.pdf", "txt": "steps.txt",
-                "runbook": "runbook.md", "zip": "steps_bundle.zip"}
+                "runbook": "runbook.md", "zip": "steps_bundle.zip", "player": "walkthrough.html"}
 _GENERATED = re.compile(r"^step_\d{3}_[0-9a-f]{8}(_after)?\.jpg$")
 
 
@@ -852,8 +852,13 @@ def write_bundle(session, tpl):
 # ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
+def write_player(session, tpl):
+    import telestep_player
+    return telestep_player.write(session, tpl)
+
+
 WRITERS = {"md": write_markdown, "docx": write_docx, "html": write_html, "pdf": write_pdf, "txt": write_text,
-           "runbook": write_runbook, "zip": write_bundle}
+           "runbook": write_runbook, "zip": write_bundle, "player": write_player}
 
 
 def export(session, tpl, formats):

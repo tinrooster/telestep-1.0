@@ -24,7 +24,7 @@ Nothing leaves your computer: no cloud service, no account, no upload.
 - **Smarter captions:** controls that expose no name are labelled with nearby on-screen text (OCR, optional).
 - **Report styles:** Technical report, clean end-user Documentation, or a condensed one-sheet Documentation layout.
 - **Review editor:** delete, exclude, reorder (also in blocks, to top/bottom), merge and duplicate steps, edit captions, add a comment under any step, add section headings and Note / Warning / Tip callouts, draw boxes, arrows, text (typed on the picture) and numbered call-outs on the pictures, then move, resize, recolour and fade them, switch between friendly and technical wording, and mask anything you missed after the fact.
-- **Export:** Markdown, DOCX, HTML (single file), PDF and text, a tick-box Runbook checklist with a verification log, and a ZIP bundle (Markdown plus pictures) for wikis and tickets; with header, footer, logo and an environment appendix.
+- **Export:** Markdown, DOCX, HTML (single file), PDF and text, a tick-box Runbook checklist with a verification log, a ZIP bundle (Markdown plus pictures) for wikis and tickets, and a narrated HTML player that plays the steps with your voice notes; with header, footer, logo and an environment appendix.
 - **Portable mode** (`portable.txt` next to the program) and an optional, off-by-default update check.
 - **Support mode:** a one-button recorder for end users that produces a single ZIP (one-sheet HTML report, steps, system and network details) to send to IT.
 - **Toolbar:** icon mini-bar with on-screen overlays showing what is captured and masked, saved presets, hotkeys, optional tray icon, and a built-in Help / About window (F1).

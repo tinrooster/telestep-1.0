@@ -13,7 +13,7 @@ pyinstaller --onefile --noconfirm --windowed --name Telestep-Support --icon asse
   --add-data "HELP.md;." --add-data "LICENSE;." --add-data "THIRD_PARTY_NOTICES.md;." ^
   --add-data "assets\telestep_logo_256.png;assets" --add-data "assets\telestep_icon_64.png;assets" ^
   --hidden-import telestep_help --hidden-import telestep_support ^
-  --hidden-import telestep_review --hidden-import telestep_report --hidden-import telestep_widgets --hidden-import telestep_settings --hidden-import telestep_privacy --hidden-import telestep_marks --hidden-import telestep_update --hidden-import telestep_audio ^
+  --hidden-import telestep_review --hidden-import telestep_report --hidden-import telestep_widgets --hidden-import telestep_settings --hidden-import telestep_privacy --hidden-import telestep_marks --hidden-import telestep_update --hidden-import telestep_audio --hidden-import telestep_player ^
   telestep.py
 if errorlevel 1 goto :fail
 if exist telestep_support.json (copy /y telestep_support.json dist\telestep_support.json >nul) else (if not exist dist\telestep_support.json copy telestep_support.example.json dist\telestep_support.json >nul)

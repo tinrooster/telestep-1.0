@@ -198,6 +198,12 @@ open that folder. If you close the window with changes that haven't been exporte
 Formats: Markdown (with a pictures folder), Word, HTML (one self-contained file), PDF and plain text, plus
 - **Runbook checklist** (`runbook.md`): a tick-box procedure (`- [ ]` per step), warnings gathered under "Before you start",
   and a *Verification log* with the *Last verified* date and author (blank date = the day you export).
+- **Narrated player (HTML)** (`walkthrough.html`): the *Play all* walkthrough as a file. One self-contained page that shows each
+  step's screenshot while its voice note plays and moves on by itself, with play/pause, previous/next, a clickable progress
+  bar and step list, and 1x-2x speed (Space = play/pause, arrow keys = previous/next). Pictures and sound are embedded, so it
+  works offline and can be emailed or run from a USB stick. Warnings and tips appear as cards; steps without a voice note
+  stay up for a few seconds (longer for longer captions), so it also works as a silent slideshow. Expect roughly 1.3 MB per
+  minute of narration plus the pictures.
 - **ZIP bundle** (`steps_bundle.zip`): `steps.md` plus only the pictures it uses, ready to attach to a wiki page or ticket.
 
 **Check for private information before exporting** (on by default, switch it off under the format boxes): Telestep searches
