@@ -98,10 +98,23 @@ Settings opens the full toolbar; when you collapse Settings (the ▲ button) you
 Settings > Options > Toolbar opacity makes the toolbar see-through (30-100%). It only applies while Settings is collapsed; with Settings open the toolbar is solid (while you drag the slider you see the chosen level). With "Solid while the pointer is over it" ticked it also becomes fully solid when you point at it.
 
 ## Mark up the pictures
-Under the picture, **Drag on the picture to:** switches the mouse from hiding to *Draw a box*, *Draw an arrow*, *Add text* or
-*Number* (click to drop 1, 2, 3 ... call-outs). Marks are blue so they stand apart from Telestep's red click marker, they
-are stored with the step (the saved screenshot is never changed), and they appear in every export. **Undo mark** removes
-the last one, **Clear marks** all of them. Marks go on the *Before* picture.
+The **Tools** row right under the picture switches the mouse between *Hide area* (the privacy tool), *Select / move*,
+*Box*, *Arrow*, *Text* and *Number*. The raised button that looks pressed is the active tool, and the line at the
+bottom of the picture says what it does. Drawing tools are one-shot: after you place a mark the tool goes back to
+*Select / move*, so the next click moves things instead of adding more. Tick **Keep tool** to place several in a row.
+- **Box / Arrow**: drag on the picture. **Number**: click to drop 1, 2, 3 ... call-outs (they renumber if you delete one).
+- **Text** is typed straight onto the picture: click (or drag a box to set its width) and type. **Enter** finishes,
+  **Shift+Enter** starts a new line, **Esc** cancels. Double-click a text mark to edit it again.
+- **Move and resize**: with any mark tool, drag an existing mark to move it; drag a box corner or an arrow end to resize
+  it, or the side handles of a text mark to change its width (the text re-wraps). Arrow keys nudge the selected mark by 1 pixel (Shift = 10), **Delete** removes it.
+- A bar docked at the bottom of the picture appears for the selected mark: **colour**, **opacity** (so a number or note
+  doesn't hide what is under it), **size**, and for text the **font** (Sans, Serif, Console, Handwriting), **bold** and
+  **background** (boxed, or plain with a halo). New marks start with whatever you chose last.
+- **Right-click the picture** for the same things: edit text, duplicate, bring to front / send to back, delete, add text
+  or a number exactly there, switch tool, undo, clear.
+
+Marks are stored with the step (the saved screenshot is never changed), look blue by default so they stand apart from
+Telestep's red click marker, and appear in every export. Marks go on the *Before* picture.
 
 ## Comments
 A step can have a one-line comment shown under its caption (for what to wait for, why, or what to expect). While recording
@@ -159,6 +172,8 @@ remembers that it is fine, *Also scan the screenshots* runs OCR over the picture
 covers the matches. Matches are guesses; a clean result does not prove a screenshot is safe.
 
 ## Portable mode and updates
+- **One copy at a time**: starting Telestep while it is already running just says so (Support mode has its own check).
+  Start with `--allow-multiple`, or set `TELESTEP_MULTI=1`, to run two on purpose.
 - **Portable mode**: create an empty file named `portable.txt` next to `Telestep.exe` (or the scripts). Settings, the log
   and, unless you pick another folder, recordings (`Recordings\`) then live beside the program, so it can run from a USB
   stick. Without that file everything is under `%APPDATA%\Telestep` and `Documents\Telestep`.

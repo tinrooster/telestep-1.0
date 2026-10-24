@@ -544,13 +544,30 @@ class HotkeyListener:
 _fonts = {}
 
 
-def get_font(size, bold=False):
+FONT_FILES = {  # name shown to the user -> (regular candidates, bold candidates); the first one that exists is used
+    "Sans": (("segoeui.ttf", "arial.ttf", "DejaVuSans.ttf"), ("segoeuib.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf")),
+    "Serif": (("times.ttf", "georgia.ttf", "DejaVuSerif.ttf"), ("timesbd.ttf", "georgiab.ttf", "DejaVuSerif-Bold.ttf")),
+    "Console": (("consola.ttf", "cour.ttf", "DejaVuSansMono.ttf"), ("consolab.ttf", "courbd.ttf", "DejaVuSansMono-Bold.ttf")),
+    "Handwriting": (("segoepr.ttf", "comic.ttf", "DejaVuSans.ttf"), ("segoeprb.ttf", "comicbd.ttf", "DejaVuSans-Bold.ttf")),
+}
+FONT_ALIASES = {"Segoe UI": "Sans", "Arial": "Sans", "Calibri": "Sans", "Verdana": "Sans",
+                "Times New Roman": "Serif", "Consolas": "Console"}  # names used by the first version of the mark-up tools
+TK_FONTS = {"Sans": "Segoe UI", "Serif": "Times New Roman", "Console": "Consolas", "Handwriting": "Segoe Print"}
+
+
+def font_family(name):
+    name = FONT_ALIASES.get(name, name)
+    return name if name in FONT_FILES else "Sans"
+
+
+def get_font(size, bold=False, family=None):
     size = int(max(8, size))
-    key = (size, bold)
+    family = font_family(family) if family else None
+    key = (size, bold, family)
     if key in _fonts:
         return _fonts[key]
-    names = (("arialbd.ttf", "segoeuib.ttf", "DejaVuSans-Bold.ttf") if bold
-             else ("arial.ttf", "segoeui.ttf", "DejaVuSans.ttf"))
+    names = list(FONT_FILES[family][1 if bold else 0]) if family else []
+    names += ["arialbd.ttf", "segoeuib.ttf", "DejaVuSans-Bold.ttf"] if bold else ["arial.ttf", "segoeui.ttf", "DejaVuSans.ttf"]
     font = None
     for n in names:
         try:
@@ -725,14 +742,26 @@ class OcrUnavailable(RuntimeError):
     pass
 
 
-def ocr_available():
+_OCR_OK = None  # cached: asking Tesseract for its version starts a program and can take seconds on some PCs
+
+
+def ocr_status():
+    """True / False once ocr_available() has run, None before (never blocks)."""
+    return _OCR_OK
+
+
+def ocr_available(refresh=False):
+    global _OCR_OK
+    if _OCR_OK is not None and not refresh:
+        return _OCR_OK
     try:
         import pytesseract
         _tesseract_path(pytesseract)
         pytesseract.get_tesseract_version()
-        return True
+        _OCR_OK = True
     except Exception:
-        return False
+        _OCR_OK = False
+    return _OCR_OK
 
 
 def _tesseract_path(pytesseract):
@@ -1037,38 +1066,169 @@ def _badge(d, img, bx, by, n, s):
 # ---------------------------------------------------------------------------
 MARK_COLOR = (21, 101, 192)
 MARK_TOOLS = ("box", "arrow", "text", "num")
+MARK_COLORS = [("Blue", "#1565c0"), ("Red", "#e53935"), ("Orange", "#fb8c00"), ("Green", "#2e9e4f"),
+               ("Black", "#212121"), ("White", "#ffffff")]
+MARK_FONTS = list(FONT_FILES)  # Sans, Serif, Console, Handwriting
+MARK_SIZES = {"S": 0.7, "M": 1.0, "L": 1.5, "XL": 2.2}
+
+
+def _mark_rgb(m):
+    h = str(m.get("c", "")).lstrip("#")
+    try:
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) if len(h) == 6 else MARK_COLOR
+    except ValueError:
+        return MARK_COLOR
+
+
+def _mark_alpha(m):
+    try:
+        return max(0.1, min(1.0, float(m.get("a", 1.0))))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _mark_unit(m, width):
+    try:
+        z = max(0.3, min(4.0, float(m.get("z", 1.0))))
+    except (TypeError, ValueError):
+        z = 1.0
+    return max(0.8, width / 1400) * z
+
+
+def _wrap(d, txt, font, width):
+    out = []
+    for para in txt.split("\n"):
+        line = ""
+        for word in para.split(" "):
+            t = (line + " " + word).strip()
+            if line and d.textlength(t, font=font) > width:
+                out.append(line)
+                line = word
+            else:
+                line = t
+        out.append(line)
+    return "\n".join(out)
+
+
+def _text_geometry(d, m, width):
+    """(wrapped text, font, pad, (l, t, r, b)) of a text mark, before it is clamped into the picture."""
+    s = _mark_unit(m, width)
+    font = get_font(20 * s, bool(m.get("b", True)), m.get("f"))
+    txt = str(m.get("text", "")).strip()
+    p = [float(v) for v in m.get("p", [0, 0])]
+    pad = 6 * s
+    if len(p) == 4 and abs(p[2] - p[0]) > 30:
+        txt = _wrap(d, txt, font, abs(p[2] - p[0]) - 2 * pad)
+    x, y = min(p[0], p[2]) if len(p) == 4 else p[0], min(p[1], p[3]) if len(p) == 4 else p[1]
+    bb = d.multiline_textbbox((0, 0), txt, font=font)
+    w, h = bb[2] - bb[0] + 2 * pad, bb[3] - bb[1] + 2 * pad
+    if len(p) == 4 and abs(p[2] - p[0]) > 30:
+        w = max(w, abs(p[2] - p[0]))  # a text box dragged out keeps its full width (so it can be resized)
+    x = min(max(0, x), max(0, width - w))
+    return txt, font, pad, (x, max(0, y), x + w, max(0, y) + h), bb
+
+
+def mark_bounds(m, size):
+    """Extent (l, t, r, b) of a mark in image pixels (used for hit-testing and the selection frame), or None."""
+    try:
+        t, p = m.get("t"), [float(v) for v in m.get("p", [])]
+        s = _mark_unit(m, size[0])
+        if t in ("box", "arrow") and len(p) == 4:
+            pad = max(3, 4 * s) if t == "box" else 12 * s
+            return (min(p[0], p[2]) - pad, min(p[1], p[3]) - pad, max(p[0], p[2]) + pad, max(p[1], p[3]) + pad)
+        if t == "num" and len(p) >= 2:
+            r = 16 * s
+            return (p[0] - r, p[1] - r, p[0] + r, p[1] + r)
+        if t == "text" and len(p) >= 2 and str(m.get("text", "")).strip():
+            d = ImageDraw.Draw(Image.new("RGB", (4, 4)))
+            return _text_geometry(d, m, size[0])[3]
+    except (TypeError, ValueError, AttributeError):
+        pass
+    return None
+
+
+def _draw_one(d, img_w, m):
+    t, p = m.get("t"), [float(v) for v in m.get("p", [])]
+    col, s = _mark_rgb(m), _mark_unit(m, img_w)
+    if t == "box" and len(p) == 4:
+        d.rectangle([min(p[0], p[2]), min(p[1], p[3]), max(p[0], p[2]), max(p[1], p[3])], outline=col,
+                    width=max(2, int(4 * s)))
+    elif t == "arrow" and len(p) == 4:
+        _arrow(d, (p[0], p[1]), (p[2], p[3]), s, col, max(3, int(5 * s)))
+    elif t == "text" and len(p) >= 2 and str(m.get("text", "")).strip():
+        txt, font, pad, (l, tp, r, b), bb = _text_geometry(d, m, img_w)
+        ox, oy = l + pad - bb[0], tp + pad - bb[1]
+        if m.get("bg", "box") == "box":
+            d.rounded_rectangle([l, tp, r, b], radius=6 * s, fill=(255, 255, 255), outline=col, width=max(2, int(3 * s)))
+            d.multiline_text((ox, oy), txt, fill=col if sum(col) < 600 else (30, 30, 30), font=font)
+        else:  # plain text with a halo so it stays readable on any picture
+            halo = (255, 255, 255) if sum(col) < 450 else (20, 20, 20)
+            d.multiline_text((ox, oy), txt, fill=col, font=font, stroke_width=max(2, int(2.5 * s)), stroke_fill=halo)
+    elif t == "num" and len(p) >= 2:
+        br = 16 * s
+        d.ellipse([p[0] - br, p[1] - br, p[0] + br, p[1] + br], fill=col, outline="white" if sum(col) < 650 else (30, 30, 30),
+                  width=max(2, int(2 * s)))
+        d.text((p[0], p[1]), str(m.get("n", "")), fill="white" if sum(col) < 450 else (20, 20, 20),
+               font=get_font(20 * s, True, m.get("f")), anchor="mm")
 
 
 def draw_marks(img, marks):
     """Draw hand-made annotations on `img` (in place).  Each mark: {'t': box|arrow|text|num, 'p': [x0, y0, x1, y1] in
-    image pixels, 'text': str, 'n': int}.  Unknown or malformed entries are skipped."""
+    image pixels, 'text', 'n', and optional 'c' colour, 'a' opacity 0.1-1, 'z' size factor, 'f' font, 'b' bold,
+    'bg' 'box'|'plain'}.  Unknown or malformed entries are skipped."""
     if not marks:
         return img
-    d = ImageDraw.Draw(img)
-    s = max(0.8, img.width / 1400)
     for m in marks:
         try:
-            t, p = m.get("t"), [float(v) for v in m.get("p", [])]
-            if t == "box" and len(p) == 4:
-                l, tp, r, b = min(p[0], p[2]), min(p[1], p[3]), max(p[0], p[2]), max(p[1], p[3])
-                d.rectangle([l, tp, r, b], outline=MARK_COLOR, width=max(3, int(4 * s)))
-            elif t == "arrow" and len(p) == 4:
-                _arrow(d, (p[0], p[1]), (p[2], p[3]), s, MARK_COLOR, max(3, int(5 * s)))
-            elif t == "text" and len(p) >= 2 and str(m.get("text", "")).strip():
-                font = get_font(20 * s, bold=True)
-                txt = str(m["text"]).strip()
-                bb = d.multiline_textbbox((p[0], p[1]), txt, font=font)
-                pad = 6 * s
-                x0, y0 = min(max(0, bb[0] - pad), max(0, img.width - (bb[2] - bb[0]) - 2 * pad)), max(0, bb[1] - pad)
-                dx, dy = x0 + pad - bb[0], y0 + pad - bb[1]
-                d.rounded_rectangle([x0, y0, bb[2] + dx + pad, bb[3] + dy + pad], radius=6 * s, fill=(255, 255, 255),
-                                    outline=MARK_COLOR, width=max(2, int(3 * s)))
-                d.multiline_text((p[0] + dx, p[1] + dy), txt, fill=(13, 71, 161), font=font)
-            elif t == "num" and len(p) >= 2:
-                br = 16 * s
-                d.ellipse([p[0] - br, p[1] - br, p[0] + br, p[1] + br], fill=MARK_COLOR, outline="white",
-                          width=max(2, int(2 * s)))
-                d.text((p[0], p[1]), str(m.get("n", "")), fill="white", font=get_font(20 * s, bold=True), anchor="mm")
+            a = _mark_alpha(m)
+            if a >= 0.99:
+                _draw_one(ImageDraw.Draw(img), img.width, m)
+            else:  # draw on a transparent layer, fade it, then lay it over the picture
+                layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                _draw_one(ImageDraw.Draw(layer), img.width, m)
+                layer.putalpha(layer.getchannel("A").point(lambda v, a=a: int(v * a)))
+                img.paste(layer, (0, 0), layer)
         except (TypeError, ValueError, AttributeError):
             continue
     return img
+
+
+# ---------------------------------------------------------------------------
+# single instance
+# ---------------------------------------------------------------------------
+_instance_handle = None  # kept for the life of the process: the mutex goes away when we exit
+
+
+def single_instance(name):
+    """True if this is the only running copy (it now owns the named mutex), False if another copy already runs.
+    Always True off Windows or if the check itself fails: never block someone from starting the program."""
+    global _instance_handle
+    try:
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateMutexW.restype = wintypes.HANDLE
+        k.CreateMutexW.argtypes = (wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR)
+        h = k.CreateMutexW(None, False, f"Local\\{name}")
+        if not h:
+            return True
+        _instance_handle = h
+        return ctypes.get_last_error() != 183  # ERROR_ALREADY_EXISTS
+    except Exception:
+        return True
+
+
+def tell_already_running(title, window_title=None):
+    """Bring the running copy's window forward if it can be found, and say so in a plain message box."""
+    try:
+        from ctypes import wintypes
+        u = ctypes.WinDLL("user32", use_last_error=True)
+        u.FindWindowW.restype = wintypes.HWND
+        u.FindWindowW.argtypes = (wintypes.LPCWSTR, wintypes.LPCWSTR)
+        hwnd = u.FindWindowW(None, window_title or title)
+        if hwnd:
+            u.ShowWindow(wintypes.HWND(hwnd), 9)  # SW_RESTORE
+            u.SetForegroundWindow(wintypes.HWND(hwnd))
+        u.MessageBoxW(None, f"{title} is already running.\n\nLook for its toolbar on screen (or its tray icon). "
+                      "Close that copy first if you want to start a new one.", title, 0x40 | 0x40000)  # info + topmost
+    except Exception:
+        pass

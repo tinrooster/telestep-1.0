@@ -996,7 +996,7 @@ class App:
                 self.var_ocr[k].set(True)
         self._ocr_sync()
         self.update_scope_label()
-        if not core.ocr_available():
+        if core.ocr_status() is False:  # the cached answer: asking Tesseract again can freeze the window for seconds
             messagebox.showinfo("Telestep", "Everything is ticked, but OCR needs the Tesseract program and "
                                 "pytesseract, which are not installed here.\n\nSee INSTALL.md > Optional extras.",
                                 parent=self.root)
@@ -1624,7 +1624,13 @@ def support_requested(argv=None, exe=None):
 
 
 def main():
-    if support_requested():
+    import sys
+    support = support_requested()
+    multi = "--allow-multiple" in sys.argv[1:] or os.environ.get("TELESTEP_MULTI")
+    if not multi and not core.single_instance("Telestep_Support" if support else "Telestep"):
+        core.tell_already_running("Telestep Support" if support else TITLE)
+        return
+    if support:
         import telestep_support
         telestep_support.main()
         return

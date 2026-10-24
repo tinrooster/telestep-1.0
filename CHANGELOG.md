@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Single instance: starting Telestep (or Support mode) a second time shows "already running" instead of opening another toolbar; `--allow-multiple` or `TELESTEP_MULTI=1` overrides.
+- Review step list: more row height and alternating row shading; text marks can be resized from their side handles.
+- Mark-up polish: the format bar is docked at the bottom of the picture instead of following the mark; plain arrow pointer for the mark tools; drawing tools are one-shot (back to Select / move after placing one; "Keep tool" to place several); tools are raised buttons with the active one pressed and highlighted; fonts reduced to Sans, Serif, Console and Handwriting (older saved names map to these).
+- Mark-up tools reworked: a Tools row directly under the picture (Hide area / Select / Box / Arrow / Text / Number) whose hint updates as soon as the tool is chosen; text typed inline on the picture (drag a box to set its width, double-click to edit); marks can be dragged, and box corners and arrow ends resized; a floating bar sets colour, opacity, size, font, bold and background; right-click menu on the picture (edit, duplicate, front/back, delete, add text or number here); arrow keys nudge, Delete removes.
+- "Hide common secrets" no longer freezes the window: it used to ask Tesseract for its version again on the UI thread; the answer is now cached.
 - Privacy: card-like and ID numbers join the OCR kinds; a "Hide common secrets" button turns OCR on and ticks them all. A check before export searches captions, comments, window titles and dialog text (and, on request, the screenshots by OCR) for private-looking data and offers to hide or ignore it. Rules for one app: from the review editor, hide an area now and in future recordings of any window with a given title (stored as fractions of the window).
 - Review editor: merge steps, duplicate a step, move to top/bottom, and move several selected steps together; a Comment line under any step (also recorded with Ctrl+Shift+F5 / right-click > Comment on next step); box, arrow, text and numbered call-out marks drawn on the pictures (stored per step, never burned into the saved screenshot).
 - Export: Runbook checklist (`runbook.md`, with "Last verified" and a verification log) and a ZIP bundle (`steps_bundle.zip`: Markdown plus the pictures it uses). Comments appear in every format.
