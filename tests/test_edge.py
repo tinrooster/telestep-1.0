@@ -6,7 +6,7 @@ app = telestep.App(root, settings_path=os.path.join(tempfile.mkdtemp(), "s.json"
 # pretend there is one 1920x1080 screen (index 0 is "all screens")
 app.screens = [{"left": 0, "top": 0, "width": 1920, "height": 1080}, {"left": 0, "top": 0, "width": 1920, "height": 1080}]
 app.var_compact.set(True); app._sync_mode(); root.update()
-w, h = root.winfo_width(), root.winfo_height()
+w, h = root.winfo_reqwidth(), root.winfo_reqheight()
 # icon dropped at the very right edge / bottom edge / off the corner
 for (x, y) in [(1920 - w, 400), (1915, 400), (900, 1075), (2500, -50)]:
     app._drag = (0, 0)
@@ -25,9 +25,17 @@ check("bottom edge ok", root.winfo_y() + root.winfo_reqheight() <= 1080, (root.w
 # three monitors side by side: the icon at the right edge of the MIDDLE one opens leftwards, not onto the third
 app.screens = [{"left": 0, "top": 0, "width": 5760, "height": 1080}] + [{"left": l, "top": 0, "width": 1920, "height": 1080} for l in (0, 1920, 3840)]
 app._screens_t = __import__("time").monotonic()
+app._expand_compact(False); root.update()
 for x in (3840 - w, 3840 - w - 2, 3840 - w - 30):
     app._cx0, app._cy0 = x, 300; root.geometry(f"+{x}+300"); root.update()
     app._expand_compact(True); root.update()
     check(f"middle screen edge {x}", root.winfo_x() >= 1920 and root.winfo_x() + root.winfo_reqwidth() <= 3840, (root.winfo_x(), root.winfo_reqwidth()))
     app._expand_compact(False); root.update()
+# recording makes the collapsed badge wider (record dot + mic): it must slide in, not spill onto the third monitor
+app._expand_compact(False); app._cx0, app._cy0 = 3840 - w - 2, 300; root.geometry(f"+{app._cx0}+300"); root.update()
+app.state = "rec"; app._mic_key = None; app._show_mic(True); root.update()
+check("recording badge stays on middle screen", root.winfo_x() >= 1920 and root.winfo_x() + root.winfo_reqwidth() <= 3840, (root.winfo_x(), root.winfo_reqwidth()))
+check("badge got wider", root.winfo_reqwidth() > w, root.winfo_reqwidth())
+app._expand_compact(True); root.update()
+check("expanded while recording on screen", root.winfo_x() >= 1920 and root.winfo_x() + root.winfo_reqwidth() <= 3840, (root.winfo_x(), root.winfo_reqwidth()))
 print(f"{ok} passed, {bad} failed"); sys.exit(1 if bad else 0)

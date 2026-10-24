@@ -844,6 +844,20 @@ class App:
         self._show_mic(bool(self.rec and self.rec.mic_on and not self.rec.paused))
         self._set_icon(self.cbtn_pause, "resume" if self.state == "paused" else "pause")
 
+    def _fit_compact(self):
+        """The collapsed badge gets wider while recording (record dot + microphone): slide it inward if that pushed it
+        past the edge of its monitor, so the new indicators never land on the neighbouring screen."""
+        if not self._compact_on or self._expanded or self._cx0 is None:
+            return
+        self.root.update_idletasks()
+        w_, h_ = self.root.winfo_reqwidth(), self.root.winfo_reqheight()
+        x, y = self._on_screen(self._cx0, self._cy0, w_, h_)
+        if (x, y) != (self._cx0, self._cy0) or self.root.winfo_x() != x:
+            self._cx0, self._cy0 = int(x), int(y)
+            self.root.geometry(f"+{int(x)}+{int(y)}")
+            self.root.update_idletasks()
+            self._toolbar_moved()
+
     def enter_compact(self):
         if self.var_cfg.get():  # Settings must be collapsed first
             self.var_cfg.set(False)
@@ -1543,6 +1557,7 @@ class App:
         else:
             self.c_rec.grid_remove()
             self.c_mic.grid_remove()
+        self._fit_compact()
 
     def _pulse_mic(self):
         """While the microphone is open its icon ripples, so it can never be mistaken for 'off'."""
